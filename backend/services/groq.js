@@ -5,33 +5,52 @@ const groq = new OpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
 });
 
-async function generateScript(prompt) {
-  const systemPrompt = `You are a video script generator. Generate a 3-scene video script for Vivi-AI.
-  Return ONLY a JSON array with exactly 3 objects.
-  Each object MUST have:
-  - "text": 1-2 sentences of narration.
-  - "keywords": 2-3 visual keywords (nouns/adjectives) to search for stock video.
-  - "scene_number": index (1, 2, 3).
-  Example:
-  [
-    { "text": "In the heart of the forest, the dawn breaks.", "keywords": "forest sunrise morning", "scene_number": 1 },
-    ...
-  ]`;
+async function generateScript(prompt, contentType) {
+  const cType = contentType || 'General';
+  const systemPrompt = `You are a professional video script generator for Vivi-AI.
+  Content Type Target: ${cType}
+  
+  You MUST write a highly engaging 4-scene video script tailored to this content type.
+  Structure the script functionally:
+  - Scene 1: Hook (attention-grabbing first line)
+  - Scene 2: Problem
+  - Scene 3: Solution
+  - Scene 4: Call-to-action (CTA)
+  
+  You MUST return ONLY a JSON object EXACTLY matching this structure:
+  {
+    "hook": "The text of scene 1",
+    "problem": "The text of scene 2",
+    "solution": "The text of scene 3",
+    "cta": "The text of scene 4",
+    "caption": "A highly engaging social media caption highlighting the content",
+    "hashtags": ["#tag1", "#tag2", "#tag3"],
+    "scenes": [
+      { "text": "[Hook text]", "keywords": "visual keyword1 keyword2", "scene_number": 1 },
+      { "text": "[Problem text]", "keywords": "visual keyword1 keyword2", "scene_number": 2 },
+      { "text": "[Solution text]", "keywords": "visual keyword1 keyword2", "scene_number": 3 },
+      { "text": "[CTA text]", "keywords": "visual keyword1 keyword2", "scene_number": 4 }
+    ]
+  }
+  
+  Keep 'text' to 1-2 powerful sentences. Keep 'keywords' strictly to 2-3 visual nouns/adjectives (used for downloading stock footage).`;
 
   const response = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile', // Fast, stable and free tier model
+    model: 'llama-3.3-70b-versatile',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Generate a script for: ${prompt}` },
+      { role: 'user', content: `Generate a ${cType} video script for the following topic: ${prompt}. Output strictly valid JSON object.` },
     ],
     response_format: { type: 'json_object' },
   });
 
   const content = JSON.parse(response.choices[0].message.content);
-  if (Array.isArray(content)) return content;
-  if (content.scenes) return content.scenes;
-  if (content.script) return content.script;
-  return Object.values(content)[0];
+  
+  if (!content.scenes || !Array.isArray(content.scenes) || content.scenes.length === 0) {
+    throw new Error('Groq generated an invalid or empty script structure.');
+  }
+  
+  return content; // Return the fully structured object with all metadata
 }
 
 module.exports = { generateScript };

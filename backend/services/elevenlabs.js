@@ -3,6 +3,34 @@ const fs = require('fs');
 
 let defaultVoiceId = null;
 
+const googleTTS = require('google-tts-api');
+
+async function fallbackGoogleTTS(text, outputPath) {
+  console.log('Using Google TTS fallback...');
+  try {
+    const results = await googleTTS.getAllAudioBase64(text, {
+      lang: 'en',
+      slow: false,
+      host: 'https://translate.google.com',
+      splitPunct: ',.?',
+    });
+    
+    // Combine base64 results
+    let buffers = [];
+    for (const result of results) {
+      buffers.push(Buffer.from(result.base64, 'base64'));
+    }
+    const finalBuffer = Buffer.concat(buffers);
+    
+    fs.writeFileSync(outputPath, finalBuffer);
+    console.log('Google TTS fallback successful:', outputPath);
+    return outputPath;
+  } catch (err) {
+    console.error('Google TTS fallback failed:', err.message);
+    throw err;
+  }
+}
+
 async function generateVoice(text, outputPath) {
   try {
     // Dynamically fetch the first available voice to prevent 404 (Voice Not Found) errors
@@ -48,7 +76,8 @@ async function generateVoice(text, outputPath) {
     } else {
       console.error('ElevenLabs Local Error:', error.message);
     }
-    throw error;
+    console.log('Attempting fallback to Google TTS...');
+    return await fallbackGoogleTTS(text, outputPath);
   }
 }
 

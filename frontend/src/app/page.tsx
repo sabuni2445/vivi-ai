@@ -10,21 +10,35 @@ const BACKEND_URL = 'http://localhost:5000';
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
-  const [videoUrl, setVideoUrl] = useState('');
+  const [results, setResults] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [useNanoBanana, setUseNanoBanana] = useState(false);
+  const [logo, setLogo] = useState<File | null>(null);
+  const [contentType, setContentType] = useState('Motivation');
+  const [batchCount, setBatchCount] = useState<number>(1);
 
   const handleGenerate = async () => {
     if (!prompt) return;
     setLoading(true);
     setError('');
-    setVideoUrl('');
-    setStatus('Ideating script...');
+    setResults([]);
+    setStatus('Ideating script and structuring scenes...');
+
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+    formData.append('useNanoBanana', String(useNanoBanana));
+    formData.append('contentType', contentType);
+    formData.append('batchCount', String(batchCount));
+    if (logo) {
+      formData.append('logo', logo);
+    }
 
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/generate`, { prompt, useNanoBanana });
-      setVideoUrl(response.data.videoUrl);
+      const response = await axios.post(`${BACKEND_URL}/api/generate`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setResults(response.data.results || []);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Something went wrong. Please check if your backend is running and API keys are set.');
     } finally {
@@ -71,6 +85,36 @@ export default function Home() {
                 className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 min-h-[120px] focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all resize-none text-lg"
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400 ml-1">Video Style / Category</label>
+                <select
+                  value={contentType}
+                  onChange={(e) => setContentType(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all text-gray-200"
+                >
+                  <option value="Motivation">Motivation & Success</option>
+                  <option value="Educational">Educational & Facts</option>
+                  <option value="Advertisement">Advertisement & Sales</option>
+                  <option value="Religious">Religious & Spiritual</option>
+                  <option value="Storytelling">Storytelling & Lore</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400 ml-1">Number of Variations</label>
+                <select
+                  value={batchCount}
+                  onChange={(e) => setBatchCount(Number(e.target.value))}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all text-gray-200"
+                >
+                  <option value={1}>1 Video (Fast)</option>
+                  <option value={2}>2 Videos (Medium)</option>
+                  <option value={3}>3 Videos (Slower)</option>
+                </select>
+              </div>
+            </div>
             
             <label className="flex items-center gap-3 cursor-pointer p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-all">
               <input 
@@ -84,6 +128,16 @@ export default function Home() {
                 <span className="text-xs text-gray-400">Generates unique visuals instead of pulling from Pexels</span>
               </div>
             </label>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-400 ml-1">Brand Logo Watermark (Optional)</label>
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={(e) => setLogo(e.target.files?.[0] || null)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-500/10 file:text-purple-400 hover:file:bg-purple-500/20"
+              />
+            </div>
 
             <button
               onClick={handleGenerate}
@@ -136,34 +190,44 @@ export default function Home() {
             </motion.div>
           )}
 
-          {videoUrl && (
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-4"
-            >
-              <div className="bg-black rounded-3xl overflow-hidden border border-white/10 shadow-2xl aspect-video relative group">
-                <video 
-                  src={videoUrl} 
-                  controls 
-                  autoPlay
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                <div className="flex items-center gap-2">
-                  <Play className="w-4 h-4 text-purple-400" />
-                  <span className="text-sm text-gray-300">Your video is ready!</span>
+          {results.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="space-y-10">
+              {results.map((result, idx) => (
+                <div key={idx} className="bg-white/5 border border-white/10 p-6 rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-blue-500" />
+                  
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
+                      Variation {idx + 1}
+                    </h3>
+                    <a 
+                      href={result.videoUrl} 
+                      download={`vivi-ai-var-${idx + 1}.mp4`}
+                      className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-xl transition-all text-sm font-medium shadow-[0_0_15px_rgba(147,51,234,0.3)]"
+                    >
+                      <Download className="w-4 h-4" /> Save
+                    </a>
+                  </div>
+
+                  <div className="bg-black rounded-2xl overflow-hidden border border-white/10 shadow-inner aspect-video relative group">
+                    <video src={result.videoUrl} controls autoPlay={idx === 0} className="w-full h-full object-cover" />
+                  </div>
+                  
+                  <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
+                    <h4 className="font-semibold text-purple-300 mb-2 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" /> Social Media Hook
+                    </h4>
+                    <p className="text-gray-300 italic text-lg leading-relaxed">"{result.caption}"</p>
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      {result.hashtags?.map((tag: string) => (
+                        <span key={tag} className="text-xs bg-blue-500/10 text-blue-300 border border-blue-500/20 px-3 py-1.5 rounded-full font-medium tracking-wide">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <a 
-                  href={videoUrl} 
-                  download="vivi-ai-video.mp4"
-                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl transition-all text-sm font-medium"
-                >
-                  <Download className="w-4 h-4" />
-                  Download
-                </a>
-              </div>
+              ))}
             </motion.div>
           )}
         </AnimatePresence>

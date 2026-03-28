@@ -3,56 +3,58 @@ const fs = require('fs');
 
 async function generateImage(keywords, outputPath) {
   try {
-    const pollinationsKey = process.env.POLLINATIONS_API_KEY;
-    const openaiKey = process.env.OPENAI_API_KEY;
-
-    // Use Pollinations if explicitly configured
-    if (pollinationsKey) {
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(keywords)}?width=1280&height=720&nologo=true`;
-      const config = {
+    const pexelsKey = process.env.PEXELS_API_KEY;
+    if (!pexelsKey) {
+      throw new Error("PEXELS_API_KEY is missing. Cannot fetch fallback images.");
+    }
+    
+    // We are restoring true AI Image Generation! 
+    // Using Pollinations AI as the primary creative engine, because stock photos aren't "creative" enough!
+    const enhancedPrompt = `${keywords}, highly creative, masterpiece, cinematic lighting, hd photorealistic`;
+    const aiUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhancedPrompt)}?width=1280&height=720&nologo=true`;
+    
+    console.log(`[ImageGen] Generating highly creative AI Image for: '${keywords}'...`);
+    
+    try {
+      const response = await axios.get(aiUrl, { 
         responseType: 'stream',
-        headers: { Authorization: `Bearer ${pollinationsKey}` }
-      };
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+      const writer = fs.createWriteStream(outputPath);
+      response.data.pipe(writer);
 
-      const response = await axios.get(url, config);
+      return await new Promise((resolve, reject) => {
+        writer.on('close', resolve);
+        writer.on('error', reject);
+      });
+    } catch (aiError) {
+      console.log(`[ImageGen] Free AI API temporarily busy. Falling back to high-quality Pexels matching...`);
+      // Seamlessly fall back to Pexels exclusively if the AI server throws an IP/Timeout error
+      const pexelsUrl = `https://api.pexels.com/v1/search?query=${encodeURIComponent(keywords)}&per_page=1&orientation=landscape`;
+      const pexelsRes = await axios.get(pexelsUrl, { headers: { Authorization: pexelsKey } });
+      
+      let finalPhotos = pexelsRes.data.photos;
+      if (!finalPhotos || finalPhotos.length === 0) {
+        const fallbackKeywords = keywords.split(' ').slice(0, 2).join(' ');
+        const fallbackRes = await axios.get(`https://api.pexels.com/v1/search?query=${encodeURIComponent(fallbackKeywords)}&per_page=1&orientation=landscape`, { headers: { Authorization: pexelsKey } });
+        finalPhotos = fallbackRes.data.photos;
+      }
+      
+      if (!finalPhotos || finalPhotos.length === 0) throw new Error(`Could not generate or fetch fallback for '${keywords}'`);
+      
+      const imageUrl = finalPhotos[0].src.landscape || finalPhotos[0].src.large;
+      const response = await axios.get(imageUrl, { responseType: 'stream' });
       const writer = fs.createWriteStream(outputPath);
       response.data.pipe(writer);
 
       return new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
+        writer.on('close', resolve);
         writer.on('error', reject);
       });
-    } 
-    // Fall back to OpenAI DALL-E since OPENAI_API_KEY is available in the environment
-    else if (openaiKey) {
-      console.log(`[ImageGen] Pollinations key missing, falling back to OpenAI DALL-E for '${keywords}'...`);
-      const response = await axios.post('https://api.openai.com/v1/images/generations', {
-        prompt: keywords + " hd photorealistic",
-        n: 1,
-        size: "1024x1024"
-      }, {
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const imageUrl = response.data.data[0].url;
-      const imageResponse = await axios.get(imageUrl, { responseType: 'stream' });
-
-      const writer = fs.createWriteStream(outputPath);
-      imageResponse.data.pipe(writer);
-
-      return new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-      });
-    } else {
-      throw new Error('AI Image Gen Error: Neither POLLINATIONS_API_KEY nor OPENAI_API_KEY was found in .env');
     }
   } catch (error) {
     if (error.response && error.response.status === 401) {
-      console.error('AI Image Gen Error: Authentication failed (401). Please check your API keys.');
+      console.error('AI Image Gen Error: Pexels Authentication failed. Check your API Key.');
     } else {
       console.error('AI Image Gen Error:', error.message);
     }
