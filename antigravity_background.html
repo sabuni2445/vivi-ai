@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity - AI Studio</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #02000A;
+            color: #FFFFFF;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #antigravity-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .cta-container {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            opacity: 0;
+            animation: fadeIn 1.5s ease-out forwards;
+            animation-delay: 0.8s;
+        }
+
+        h1 {
+            font-size: 4rem;
+            font-weight: 800;
+            letter-spacing: -2px;
+            margin-bottom: 20px;
+            background: linear-gradient(to bottom, #fff 0%, #aaa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p {
+            font-size: 1.25rem;
+            color: #A1A1AA;
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+
+        .cta-button {
+            padding: 18px 45px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #8B5CF6, #3B82F6);
+            border: none;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(139, 92, 246, 0.4);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+        }
+
+        .cta-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(139, 92, 246, 0.6);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Parallax Layer */
+        #parallax-wrapper {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            transition: transform 0.1s ease-out;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="parallax-wrapper">
+        <canvas id="antigravity-canvas"></canvas>
+    </div>
+
+    <div class="cta-container">
+        <h1>VIVI AI STUDIO</h1>
+        <p>The next generation of cinematic marketing videos, powered by advanced neural synthesis.</p>
+        <button class="cta-button">START CREATING</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('antigravity-canvas');
+        const ctx = canvas.getContext('2d');
+        const parallaxWrapper = document.getElementById('parallax-wrapper');
+
+        let particles = [];
+        let animationId;
+        const mouse = { x: null, y: null, radius: 150 };
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            init();
+        }
+
+        window.addEventListener('resize', resize);
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+
+            // Parallax effect
+            const moveX = (e.clientX - window.innerWidth / 2) * 0.015;
+            const moveY = (e.clientY - window.innerHeight / 2) * 0.015;
+            parallaxWrapper.style.transform = `translate(${moveX}px, ${moveY}px)`;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                mouse.x = e.touches[0].clientX;
+                mouse.y = e.touches[0].clientY;
+            }
+        });
+
+        window.addEventListener('touchend', () => {
+            mouse.x = null;
+            mouse.y = null;
+        });
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2 + 1;
+                this.speedX = Math.random() * 0.6 - 0.3;
+                this.speedY = Math.random() * 0.6 - 0.3;
+                // Elastic force multiplier
+                this.density = (Math.random() * 30) + 1;
+            }
+
+            draw() {
+                ctx.fillStyle = 'rgba(173, 216, 230, 0.8)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+
+                // Glow effect
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#3B82F6';
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+
+                if (this.x > canvas.width || this.x < 0) this.speedX *= -1;
+                if (this.y > canvas.height || this.y < 0) this.speedY *= -1;
+
+                if (mouse.x !== null) {
+                    let dx = mouse.x - this.x;
+                    let dy = mouse.y - this.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < mouse.radius) {
+                        let forceDirectionX = dx / distance;
+                        let forceDirectionY = dy / distance;
+                        let maxDistance = mouse.radius;
+                        let force = (maxDistance - distance) / maxDistance;
+                        let directionX = forceDirectionX * force * this.density;
+                        let directionY = forceDirectionY * force * this.density;
+
+                        this.x -= directionX * 1.5;
+                        this.y -= directionY * 1.5;
+                    }
+                }
+            }
+        }
+
+        function init() {
+            particles = [];
+            const numberOfParticles = (canvas.width * canvas.height) / 12000;
+            for (let i = 0; i < numberOfParticles; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        function connect() {
+            for (let a = 0; a < particles.length; a++) {
+                // Optimization: only check nearby particles in the array to avoid O(n^2)
+                const limit = Math.min(a + 15, particles.length);
+                for (let b = a + 1; b < limit; b++) {
+                    let dx = particles[a].x - particles[b].x;
+                    let dy = particles[a].y - particles[b].y;
+                    let distanceSq = dx * dx + dy * dy;
+
+                    if (distanceSq < 140 * 140) {
+                        let distance = Math.sqrt(distanceSq);
+                        let opacity = 1 - (distance / 140);
+                        ctx.strokeStyle = `rgba(173, 216, 230, ${opacity * 0.2})`;
+                        ctx.lineWidth = 0.8;
+                        ctx.beginPath();
+                        ctx.moveTo(particles[a].x, particles[a].y);
+                        ctx.lineTo(particles[b].x, particles[b].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].draw();
+                particles[i].update();
+            }
+            connect();
+            animationId = requestAnimationFrame(animate);
+        }
+
+        resize();
+        animate();
+    </script>
+</body>
+
+</html>
