@@ -6,49 +6,78 @@ const path = require('path');
 ffmpeg.setFfmpegPath(ffmpegInstaller);
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
-function getSubtitleFilter(text) {
-  if (!text) return '';
-  // Word wrap around 40 characters
-  const wrapped = text.replace(/(?![^\n]{1,40}$)([^\n]{1,40})\s/g, '$1\n');
-  // Escape quotes and colons safely for FFmpeg filtergraph
-  const safeText = wrapped.replace(/'/g, "\u2019").replace(/:/g, "\\:");
-  // Centered, bold, white text with black semi-transparent box
-  return `drawtext=text='${safeText}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=10:line_spacing=10:x=(w-text_w)/2:y=(h-text_h)-80`;
+function getAspectConfig(ratio) {
+  switch (ratio) {
+    case '9:16':
+      return {
+        width: 1080,
+        height: 1920,
+        yPos: '(h/2)', // Center aligned (mobile optimized)
+        fontSize: 95,
+        wrapLimit: 20
+      };
+    case '1:1':
+      return {
+        width: 1080,
+        height: 1080,
+        yPos: '(h/2)-text_h+(h/4)', // Centered balanced
+        fontSize: 80,
+        wrapLimit: 30
+      };
+    case '16:9':
+    default:
+      return {
+        width: 1920,
+        height: 1080,
+        yPos: '(h-text_h)-120', // Lower-third positioning
+        fontSize: 65,
+        wrapLimit: 45
+      };
+  }
 }
 
-async function processScene(videoPath, audioPath, outputPath, sceneText = '') {
+function getSubtitleFilter(text, targetRatio = '16:9', outputPath) {
+  if (!text) return '';
+  const config = getAspectConfig(targetRatio);
+  
+  // Dynamic wrapping based on exact format geometry
+  const regex = new RegExp(`(?![^\\n]{1,${config.wrapLimit}}$)([^\\n]{1,${config.wrapLimit}})\\s`, 'g');
+  const wrapped = text.replace(regex, '$1\n');
+  const safeText = wrapped.replace(/'/g, "\u2019");
+  
+  const textFilePath = outputPath.replace('.mp4', '.txt');
+  require('fs').writeFileSync(textFilePath, safeText);
+
+  const relativePath = require('path').relative(process.cwd(), textFilePath);
+  const safeTextFilePath = relativePath.replace(/\\/g, '/');
+
+  return `drawtext=textfile='${safeTextFilePath}':fontcolor=white:font=Impact:fontsize=${config.fontSize}:borderw=6:bordercolor=black@0.9:shadowx=4:shadowy=5:shadowcolor=black@0.6:line_spacing=20:x=(w-text_w)/2:y=${config.yPos}`;
+}
+
+async function processScene(videoPath, audioPath, outputPath, sceneText = '', targetRatio = '16:9') {
+  const { width, height } = getAspectConfig(targetRatio);
+
   return new Promise((resolve, reject) => {
-    // Determine the duration of the audio
     ffmpeg.ffprobe(audioPath, (err, metadata) => {
       if (err) return reject(new Error('Failed to probe audio: ' + err.message));
-      
-      let duration = metadata.format && metadata.format.duration;
-      duration = parseFloat(duration);
-      if (!duration || isNaN(duration) || duration <= 0) {
-        duration = (metadata.streams && metadata.streams[0] && metadata.streams[0].duration);
-        duration = parseFloat(duration);
-      }
-      if (!duration || isNaN(duration) || duration <= 0) {
-        duration = 5; // Safe fallback if MP3 metadata is missing 
-      }
+      let duration = parseFloat(metadata.format.duration) || 5;
 
-      let filtergraph = `scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1`;
-      const subtitleFilter = getSubtitleFilter(sceneText);
+      // Composition fix: High-quality aggressive aspect crop & scale (increase to prevent black bars)
+      let filtergraph = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`;
+      const subtitleFilter = getSubtitleFilter(sceneText, targetRatio, outputPath);
       if (subtitleFilter) filtergraph += `,${subtitleFilter}`;
 
-      // Merge audio and video, looping the video if needed and cutting it to audio duration
       ffmpeg(videoPath)
         .input(audioPath)
-        .inputOptions(['-stream_loop', '-1']) // Loop video indefinitely
+        .inputOptions(['-stream_loop', '-1'])
         .videoCodec('libx264')
         .audioCodec('aac')
-        .outputOptions([
-          '-t', String(duration), 
-          '-pix_fmt', 'yuv420p',
-          '-vf', filtergraph
-        ])
+        .outputOptions(['-t', String(duration), '-pix_fmt', 'yuv420p', '-vf', filtergraph])
         .on('end', () => resolve(outputPath))
-        .on('error', (err) => reject(new Error('FFmpeg error: ' + err.message)))
+        .on('error', (err) => {
+           console.error("Scene render error: ", err);
+           reject(new Error('FFmpeg error: ' + err.message));
+        })
         .save(outputPath);
     });
   });
@@ -74,39 +103,23 @@ async function concatenateScenes(scenePaths, finalOutputPath) {
   });
 }
 
-async function processImageScene(imagePath, audioPath, outputPath, sceneText = '') {
+async function processImageScene(imagePath, audioPath, outputPath, sceneText = '', targetRatio = '16:9') {
+  const { width, height } = getAspectConfig(targetRatio);
+
   return new Promise((resolve, reject) => {
-    // Determine the duration of the audio
     ffmpeg.ffprobe(audioPath, (err, metadata) => {
       if (err) return reject(new Error('Failed to probe audio: ' + err.message));
-      
-      let duration = metadata.format && metadata.format.duration;
-      duration = parseFloat(duration);
-      if (!duration || isNaN(duration) || duration <= 0) {
-        duration = (metadata.streams && metadata.streams[0] && metadata.streams[0].duration);
-        duration = parseFloat(duration);
-      }
-      if (!duration || isNaN(duration) || duration <= 0) {
-        duration = 5; // Safe fallback if MP3 metadata is missing 
-      }
+      let duration = parseFloat(metadata.format.duration) || 5;
 
-      let filtergraph = `format=yuv420p,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,zoompan=z='min(max(zoom,1)+0.001,1.5)':d=${Math.ceil(duration * 25)}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720`;
-      const subtitleFilter = getSubtitleFilter(sceneText);
+      let filtergraph = `format=yuv420p,scale=${width*2}:${height*2}:force_original_aspect_ratio=increase,crop=${width*2}:${height*2},zoompan=z='min(max(zoom,1)+0.001,1.5)':d=${Math.ceil(duration * 25)}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}`;
+      const subtitleFilter = getSubtitleFilter(sceneText, targetRatio, outputPath);
       if (subtitleFilter) filtergraph += `,${subtitleFilter}`;
 
-      // Notice: Do NOT use .loop() when using zoompan! 
-      // zoompan automatically creates `duration * fps` frames from a SINGLE input image frame.
-      // Looping the input causes an infinite buffer exponentially exploding rendering times.
       ffmpeg(imagePath)
         .input(audioPath)
         .videoCodec('libx264')
         .audioCodec('aac')
-        .outputOptions([
-          '-pix_fmt', 'yuv420p',
-          '-vf', filtergraph,
-          '-t', String(duration), 
-          '-r', '25' 
-        ])
+        .outputOptions(['-pix_fmt', 'yuv420p', '-vf', filtergraph, '-t', String(duration), '-r', '25'])
         .on('end', () => resolve(outputPath))
         .on('error', (err) => reject(new Error('FFmpeg Image error: ' + err.message)))
         .save(outputPath);
@@ -119,7 +132,6 @@ async function applyLogoWatermark(videoPath, logoPath, outputPath) {
     ffmpeg(videoPath)
       .input(logoPath)
       .complexFilter([
-        // Scale logo to 150px width, then place it in the top right corner
         '[1:v]scale=150:-1[logo]',
         '[0:v][logo]overlay=W-w-30:30'
       ])

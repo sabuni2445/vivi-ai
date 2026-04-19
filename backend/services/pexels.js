@@ -2,10 +2,12 @@ const axios = require('axios');
 const fs = require('fs');
 
 async function fetchVideo(keywords, outputPath, isRetry = false) {
+  const safeKeywords = keywords && keywords.trim() !== "" ? keywords : "beautiful atmospheric abstract";
+  
   try {
     const options = {
       method: 'GET',
-      url: `https://api.pexels.com/videos/search?query=${encodeURIComponent(keywords)}&per_page=1`,
+      url: `https://api.pexels.com/videos/search?query=${encodeURIComponent(safeKeywords)}&per_page=1`,
       headers: {
         Authorization: process.env.PEXELS_API_KEY,
       },
@@ -14,10 +16,10 @@ async function fetchVideo(keywords, outputPath, isRetry = false) {
     const response = await axios.request(options);
     if (!response.data.videos || response.data.videos.length === 0) {
       if (!isRetry) {
-        console.warn(`Pexels: No videos found for '${keywords}'. Retrying with generic fallback...`);
+        console.warn(`Pexels: No videos found for '${safeKeywords}'. Retrying with generic fallback...`);
         return fetchVideo('beautiful abstract motion', outputPath, true);
       }
-      throw new Error(`No videos found for: ${keywords}`);
+      throw new Error(`No videos found for: ${safeKeywords}`);
     }
 
     const videoFiles = response.data.videos[0].video_files;
@@ -55,4 +57,42 @@ async function fetchVideo(keywords, outputPath, isRetry = false) {
   }
 }
 
-module.exports = { fetchVideo };
+async function searchPexelsOptions(keywords, count = 4, isRetry = false) {
+  const safeKeywords = keywords && keywords.trim() !== "" ? keywords : "beautiful atmospheric abstract";
+  
+  try {
+    const options = {
+      method: 'GET',
+      url: `https://api.pexels.com/videos/search?query=${encodeURIComponent(safeKeywords)}&per_page=${count}`,
+      headers: {
+        Authorization: process.env.PEXELS_API_KEY,
+      },
+    };
+
+    const response = await axios.request(options);
+    if (!response.data.videos || response.data.videos.length === 0) {
+      if (!isRetry) return searchPexelsOptions('beautiful abstract motion', count, true);
+      return [];
+    }
+
+    return response.data.videos.map(vid => {
+      const selectedFile = vid.video_files.find(f => f.quality === 'hd') || 
+                           vid.video_files.find(f => f.quality === 'sd') || 
+                           vid.video_files[0];
+      return {
+        id: vid.id,
+        url: selectedFile ? selectedFile.link : null,
+        fallbackThumbnail: vid.image
+      };
+    }).filter(v => v.url !== null);
+
+  } catch (error) {
+    if (!isRetry && error.response && error.response.status >= 500) {
+      return searchPexelsOptions('beautiful abstract motion', count, true);
+    }
+    console.error('Pexels Multi-Search Error:', error.message);
+    return [];
+  }
+}
+
+module.exports = { fetchVideo, searchPexelsOptions };

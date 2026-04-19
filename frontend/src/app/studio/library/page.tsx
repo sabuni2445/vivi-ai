@@ -7,11 +7,13 @@ import { sampleVideos } from '@/lib/data/studio';
 import { useStudio } from '@/context/StudioContext';
 
 export default function LibraryPage() {
-  const { T, lang } = useStudio();
+  const { T, lang, userAssets } = useStudio();
   const [viewType, setViewType] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredAssets = sampleVideos.filter(v => 
+  const allAssets = [...userAssets, ...sampleVideos];
+
+  const filteredAssets = allAssets.filter(v => 
     v.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
     v.category.toLowerCase().includes(searchQuery.toLowerCase())
   );

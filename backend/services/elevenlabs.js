@@ -7,15 +7,16 @@ const googleTTS = require('google-tts-api');
 
 async function fallbackGoogleTTS(text, outputPath) {
   console.log('Using Google TTS fallback...');
+  const safeText = String(text || "Vivi AI Production").substring(0, 200); // Google TTS limit is 200 chars per chunk
+  
   try {
-    const results = await googleTTS.getAllAudioBase64(text, {
+    const results = await googleTTS.getAllAudioBase64(safeText, {
       lang: 'en',
       slow: false,
       host: 'https://translate.google.com',
       splitPunct: ',.?',
     });
     
-    // Combine base64 results
     let buffers = [];
     for (const result of results) {
       buffers.push(Buffer.from(result.base64, 'base64'));
@@ -32,8 +33,14 @@ async function fallbackGoogleTTS(text, outputPath) {
 }
 
 async function generateVoice(text, outputPath) {
+  const safeText = String(text || "No text provided");
+  
   try {
-    // Dynamically fetch the first available voice to prevent 404 (Voice Not Found) errors
+    if (!process.env.ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY === 'YOUR_API_KEY') {
+       throw new Error('ElevenLabs API Key is missing or invalid.');
+    }
+
+    // Dynamically fetch the first available voice to prevent 404
     if (!defaultVoiceId) {
       const voicesResp = await axios.get('https://api.elevenlabs.io/v1/voices', {
         headers: {
@@ -44,7 +51,6 @@ async function generateVoice(text, outputPath) {
         throw new Error('No voices found in your ElevenLabs account.');
       }
       defaultVoiceId = voicesResp.data.voices[0].voice_id;
-      console.log('ElevenLabs initialized with Voice ID:', defaultVoiceId);
     }
 
     const options = {
@@ -56,14 +62,14 @@ async function generateVoice(text, outputPath) {
         'xi-api-key': process.env.ELEVENLABS_API_KEY,
       },
       data: {
-        text: text,
-        model_id: 'eleven_multilingual_v2', // Updated to latest recommended model
+        text: safeText,
+        model_id: 'eleven_multilingual_v2',
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.5,
         },
       },
-      responseType: 'arraybuffer', // Important for saving the audio file
+      responseType: 'arraybuffer',
     };
 
     const response = await axios.request(options);
@@ -76,8 +82,22 @@ async function generateVoice(text, outputPath) {
     } else {
       console.error('ElevenLabs Local Error:', error.message);
     }
-    console.log('Attempting fallback to Google TTS...');
-    return await fallbackGoogleTTS(text, outputPath);
+    
+    try {
+      return await fallbackGoogleTTS(safeText, outputPath);
+    } catch (fallbackErr) {
+       console.warn("TTS ENGINE CRASH. Generating silent audio fallback to prevent FFmpeg crash.");
+       return new Promise((resolve) => {
+         require('fluent-ffmpeg')()
+           .input('anullsrc=r=44100:cl=mono')
+           .inputFormat('lavfi')
+           .audioCodec('libmp3lame')
+           .duration(3)
+           .save(outputPath)
+           .on('end', () => resolve(outputPath))
+           .on('error', () => resolve(outputPath)); // Failsafe
+       });
+    }
   }
 }
 

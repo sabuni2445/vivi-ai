@@ -235,7 +235,7 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
       ref={canvasRef}
       className="absolute inset-0 z-[10] pointer-events-none transform-gpu transition-transform duration-300 ease-out"
       style={{
-        transform: `translate(${(mousePosition.x - window.innerWidth / 2) * 0.02}px, ${(mousePosition.y - window.innerHeight / 2) * 0.02}px)`
+        transform: typeof window !== 'undefined' ? `translate(${(mousePosition.x - window.innerWidth / 2) * 0.02}px, ${(mousePosition.y - window.innerHeight / 2) * 0.02}px)` : 'none'
       }}
     />
   );

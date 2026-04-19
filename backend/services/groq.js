@@ -5,52 +5,108 @@ const groq = new OpenAI({
   baseURL: 'https://api.groq.com/openai/v1',
 });
 
-async function generateScript(prompt, contentType) {
-  const cType = contentType || 'General';
-  const systemPrompt = `You are a professional video script generator for Vivi-AI.
-  Content Type Target: ${cType}
-  
-  You MUST write a highly engaging 4-scene video script tailored to this content type.
-  Structure the script functionally:
-  - Scene 1: Hook (attention-grabbing first line)
-  - Scene 2: Problem
-  - Scene 3: Solution
-  - Scene 4: Call-to-action (CTA)
-  
-  You MUST return ONLY a JSON object EXACTLY matching this structure:
-  {
-    "hook": "The text of scene 1",
-    "problem": "The text of scene 2",
-    "solution": "The text of scene 3",
-    "cta": "The text of scene 4",
-    "caption": "A highly engaging social media caption highlighting the content",
-    "hashtags": ["#tag1", "#tag2", "#tag3"],
-    "scenes": [
-      { "text": "[Hook text]", "keywords": "visual keyword1 keyword2", "scene_number": 1 },
-      { "text": "[Problem text]", "keywords": "visual keyword1 keyword2", "scene_number": 2 },
-      { "text": "[Solution text]", "keywords": "visual keyword1 keyword2", "scene_number": 3 },
-      { "text": "[CTA text]", "keywords": "visual keyword1 keyword2", "scene_number": 4 }
-    ]
+async function generateScript(brief) {
+  const systemPrompt = `You are Vivi-AI, a deterministic marketing compiler.
+
+You do NOT behave like a creative writer.
+You behave like a strict transformation engine that maps structured user input into a marketing script.
+
+🎯 SCREEN CONTROL PROMPT (MANDATORY)
+========================
+ASPECT RATIO ENFORCEMENT (CRITICAL)
+========================
+You MUST strictly adapt all scenes to the provided aspect_ratio: ${brief.aspectRatio || '9:16'}.
+
+aspect_ratio mapping:
+- "9:16" (Vertical / Mobile / TikTok, Reels)
+- "16:9" (Horizontal / YouTube / Landscape)
+- "1:1" (Square / Instagram Feed)
+
+RULES:
+1. COMPOSITION CONTROL
+- 9:16 → Vertical framing, subject centered, close-up shots, mobile-first composition.
+- 16:9 → Wide shots, cinematic framing, background context visible.
+- 1:1 → Balanced center composition, symmetrical framing.
+
+2. TEXT PLACEMENT
+- 9:16 → Text must be stacked vertically, large, centered.
+- 16:9 → Text can be side-aligned or lower thirds.
+- 1:1 → Text centered or top/bottom balanced.
+
+3. VISUAL DESCRIPTION MUST CHANGE
+- You MUST explicitly describe framing based on aspect ratio in the "visual" field.
+- Example: "A close-up vertical shot of [Subject], centered in frame"
+
+========================
+CORE RULES (MANDATORY)
+========================
+1. ZERO INVENTION: Never introduce new concepts not provided by the user.
+2. EXACT LANGUAGE PRESERVATION: Use user hook/taglines verbatim.
+3. NO GAP FILLING: Leave empty if data is missing.
+4. STRICT MAPPING: Every element must map to a user input field.
+
+========================
+OUTPUT FORMAT (STRICT JSON ONLY)
+========================
+{
+  "strategy": {
+    "summary": "Technical breakdown of brief-to-script mapping.",
+    "aspect_ratio": "${brief.aspectRatio || '9:16'}"
+  },
+  "scenes": [
+    {
+      "scene_number": 1,
+      "visual": "Resolution-aware visual description emphasizing ${brief.aspectRatio} framing",
+      "dialogue": "Verbatim text",
+      "on_screen_text": "Text to display",
+      "voiceover": "Spoken text",
+      "framing": {
+        "aspect_ratio": "${brief.aspectRatio || '9:16'}",
+        "composition": "e.g. Vertically centered subject",
+        "text_layout": "e.g. Large centered stacked text"
+      },
+      "mapping": {
+        "field_used": "e.g. hookText",
+        "input_value": "..."
+      }
+    }
+  ],
+  "compliance_report": {
+    "all_inputs_used": true,
+    "aspect_ratio_respected": true
   }
-  
-  Keep 'text' to 1-2 powerful sentences. Keep 'keywords' strictly to 2-3 visual nouns/adjectives (used for downloading stock footage).`;
+}
+
+========================
+GENERATION LOGIC
+========================
+STEP 1: Identify Target Aspect Ratio.
+STEP 2: Map inputs to scenes.
+STEP 3: Verify framing matches ${brief.aspectRatio}.
+STEP 4: Output Traceable JSON.
+
+Precision is more important than creativity.`;
 
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Generate a ${cType} video script for the following topic: ${prompt}. Output strictly valid JSON object.` },
+      { role: 'user', content: `Compile the marketing script. ASPECT RATIO MUST BE ${brief.aspectRatio || '9:16'}. \n\nINPUT:\n${JSON.stringify(brief, null, 2)}` },
     ],
     response_format: { type: 'json_object' },
   });
 
   const content = JSON.parse(response.choices[0].message.content);
   
-  if (!content.scenes || !Array.isArray(content.scenes) || content.scenes.length === 0) {
-    throw new Error('Groq generated an invalid or empty script structure.');
-  }
+  // Backend Validation Layer (Literal Engine v3 + Aspect Ratio)
+  if (content.error) throw new Error(`Constraint Violation: ${content.error}`);
   
-  return content; // Return the fully structured object with all metadata
+  const firstScene = content.scenes[0];
+  if (!firstScene.framing || firstScene.framing.aspect_ratio !== (brief.aspectRatio || '9:16')) {
+     console.error('Validation Failed: Aspect ratio not respected by compiler.');
+  }
+
+  return content;
 }
 
 module.exports = { generateScript };

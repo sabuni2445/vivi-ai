@@ -29,7 +29,9 @@ export const DashboardView = ({
   setStep,
   setMode
 }: DashboardViewProps) => {
-  const { T, lang } = useStudio();
+  const { T, lang, userAssets } = useStudio();
+
+  const allMedia = [...userAssets, ...filteredVideos];
 
   return (
     <motion.div
@@ -43,7 +45,7 @@ export const DashboardView = ({
       {/* Studio Performance Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 px-4">
          {[
-            { id: 1, label: lang === 'am' ? 'ባጠቃላይ ቪዲዮዎች' : 'Total Productions', value: '42', icon: <Video className="w-5 h-5 text-primary" />, trend: '+12%' },
+            { id: 1, label: lang === 'am' ? 'ባጠቃላይ ቪዲዮዎች' : 'Total Productions', value: (userAssets.length + 42).toString(), icon: <Video className="w-5 h-5 text-primary" />, trend: `+${userAssets.length}` },
             { id: 2, label: lang === 'am' ? 'የስቱዲዮ ሰዓታት' : 'Studio Hours', value: '12.5h', icon: <Clock className="w-5 h-5 text-secondary" />, trend: 'Live' },
             { id: 3, label: lang === 'am' ? 'የተሳለጡ ፕሮምፕቶች' : 'Enhanced Prompts', value: '128', icon: <Sparkles className="w-5 h-5 text-orange-400" />, trend: '88%' },
             { id: 4, label: lang === 'am' ? 'ጥራት (UHD)' : 'Avg. Resolution', value: '4K', icon: <BarChart3 className="w-5 h-5 text-green-500" />, trend: 'Opt' },
@@ -146,7 +148,7 @@ export const DashboardView = ({
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 auto-rows-[200px]">
-          {filteredVideos.map((v, idx) => (
+          {allMedia.map((v, idx) => (
             <motion.div
               key={v.id}
               variants={itemVariants}
