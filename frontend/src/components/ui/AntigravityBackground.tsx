@@ -126,9 +126,9 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
       speedX: number;
       speedY: number;
 
-      constructor() {
-        this.x = Math.random() * canvas.width;
-        this.y = Math.random() * canvas.height;
+      constructor(w: number, h: number) {
+        this.x = Math.random() * w;
+        this.y = Math.random() * h;
         this.size = Math.random() * 2 + 1;
         this.baseX = this.x;
         this.baseY = this.y;
@@ -177,9 +177,9 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
       particles = [];
       // Limit particles to a reasonable number even on giant screens
       const numberOfParticles = Math.min((canvas.width * canvas.height) / 25000, 150);
-      for (let i = 0; i < numberOfParticles; i++) {
-        particles.push(new Particle());
-      }
+        for (let i = 0; i < numberOfParticles; i++) {
+          particles.push(new Particle(canvas.width, canvas.height));
+        }
     };
 
     const connect = () => {

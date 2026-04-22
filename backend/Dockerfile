@@ -16,7 +16,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies and rebuild native modules
-RUN npm install --production && npm rebuild sqlite3
+RUN npm install --production --build-from-source
 
 # Copy application code
 COPY . .
