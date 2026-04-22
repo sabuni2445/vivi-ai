@@ -1,5 +1,5 @@
-# Use Node.js LTS image
-FROM node:18-slim
+# Use Node.js LTS image (Bookworm for better GLIBC compatibility)
+FROM node:18-bookworm
 
 # Install FFmpeg and other dependencies
 RUN apt-get update && apt-get install -y \
@@ -15,8 +15,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
+# Install dependencies and rebuild native modules
+RUN npm install --production && npm rebuild sqlite3
 
 # Copy application code
 COPY . .

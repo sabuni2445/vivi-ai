@@ -30,6 +30,7 @@ interface CreateFlowProps {
     hook: string;
     audience: string;
     platform: string;
+    strategy: string;
   };
   realTimeProgress?: { step: string, percentage: number } | null;
   handleFetchAssets?: () => void;
