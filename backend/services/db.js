@@ -1,42 +1,60 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
+const dotenv = require('dotenv');
 
-const dbPath = path.resolve(__dirname, '../database.sqlite');
-const db = new sqlite3.Database(dbPath);
+dotenv.config();
 
-// Initialize DB schema
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS campaigns (
-      id TEXT PRIMARY KEY,
-      user_id TEXT,
-      input TEXT,
-      script TEXT,
-      video_url TEXT,
-      status TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+// Use the Supabase Connection String from your .env file
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false // Required for Supabase
+  }
 });
 
-// Helper functions for easy async DB interactions
-const dbRun = (query, params) => {
-  return new Promise((resolve, reject) => {
-    db.run(query, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
+/**
+ * Migration Helper: Converts SQLite '?' syntax to PostgreSQL '$1, $2' syntax
+ * This allows us to keep the rest of our code unchanged!
+ */
+function convertToPgSyntax(query) {
+  let count = 0;
+  return query.replace(/\?/g, () => {
+    count++;
+    return `$${count}`;
   });
+}
+
+const dbRun = async (query, params = []) => {
+  const pgQuery = convertToPgSyntax(query);
+  try {
+    const res = await pool.query(pgQuery, params);
+    return res;
+  } catch (err) {
+    console.error('Supabase Query Error:', err);
+    throw err;
+  }
 };
 
-const dbGet = (query, params) => {
-  return new Promise((resolve, reject) => {
-    db.get(query, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+const dbGet = async (query, params = []) => {
+  const pgQuery = convertToPgSyntax(query);
+  try {
+    const res = await pool.query(pgQuery, params);
+    return res.rows[0]; // Return the first row to match SQLite's db.get()
+  } catch (err) {
+    console.error('Supabase Query Error:', err);
+    throw err;
+  }
 };
 
-module.exports = { db, dbRun, dbGet };
+// Add dbAll to handle lists of results
+const dbAll = async (query, params = []) => {
+    const pgQuery = convertToPgSyntax(query);
+    try {
+      const res = await pool.query(pgQuery, params);
+      return res.rows;
+    } catch (err) {
+      console.error('Supabase Query Error:', err);
+      throw err;
+    }
+  };
+
+module.exports = { pool, dbRun, dbGet, dbAll };

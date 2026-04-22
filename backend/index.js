@@ -30,7 +30,7 @@ const crypto = require('crypto');
 function uuidv4() {
   return crypto.randomUUID();
 }
-const { dbRun, dbGet } = require('./services/db');
+const { dbRun, dbGet, dbAll } = require('./services/db');
 
 const { generateScript } = require('./services/groq');
 const { generateVoice } = require('./services/elevenlabs');
@@ -101,6 +101,21 @@ app.patch('/api/campaigns/:id', async (req, res) => {
   } catch (error) {
     console.error('Update Campaign Error:', error);
     res.status(500).json({ error: 'Failed to update campaign' });
+  }
+});
+
+app.get('/api/campaigns', async (req, res) => {
+  try {
+    const campaigns = await dbAll('SELECT * FROM campaigns ORDER BY created_at DESC');
+    const parsed = campaigns.map(c => ({
+        ...c,
+        input: c.input ? JSON.parse(c.input) : null,
+        script: c.script ? (typeof c.script === 'string' ? JSON.parse(c.script) : c.script) : null
+    }));
+    res.json(parsed);
+  } catch (error) {
+    console.error('List Campaigns Error:', error);
+    res.status(500).json({ error: 'Failed to fetch campaigns' });
   }
 });
 

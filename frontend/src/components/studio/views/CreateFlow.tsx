@@ -416,25 +416,38 @@ export const CreateFlow = ({
                                       <div className="flex items-center justify-between">
                                          <div className="flex items-center gap-4">
                                            <span className="text-[10px] font-black uppercase text-primary tracking-[0.4em]">{idx === 0 ? 'Hook' : idx === 1 ? 'Problem' : idx === 2 ? 'Solution' : 'CTA'}</span>
-                                           {scene.mapping && (
-                                             <div className="px-3 py-1 bg-primary/5 border border-primary/10 rounded-full flex items-center gap-2">
-                                               <span className="text-[8px] font-black text-primary/60 uppercase tracking-widest">Compiler Mapped:</span>
-                                               <span className="text-[8px] font-bold text-primary uppercase">{scene.mapping.field_used}</span>
-                                             </div>
-                                           )}
                                          </div>
-                                         <span className="text-[9px] font-bold text-muted uppercase tracking-widest italic group-hover:text-foreground line-clamp-1 max-w-[200px]">Prompt: {scene.visual || scene.keywords}</span>
                                       </div>
-                                      <textarea 
-                                        value={scene.voiceover || scene.dialogue || scene.text || ""} 
-                                        onChange={(e) => {
-                                          const newScenes = [...scriptData.scenes];
-                                          const field = scene.voiceover ? 'voiceover' : scene.dialogue ? 'dialogue' : 'text';
-                                          newScenes[idx][field] = e.target.value;
-                                          setScriptData({...scriptData, scenes: newScenes});
-                                        }}
-                                        className="w-full bg-transparent border-none p-0 text-xl font-bold text-foreground focus:outline-none resize-none min-h-[60px]"
-                                      />
+                                      
+                                      <div className="grid grid-cols-1 gap-6">
+                                        <div className="space-y-2">
+                                          <label className="text-[9px] font-black text-muted uppercase tracking-widest italic">Scene Script (Voiceover)</label>
+                                          <textarea 
+                                            value={scene.voiceover || scene.dialogue || scene.text || ""} 
+                                            onChange={(e) => {
+                                              const newScenes = [...scriptData.scenes];
+                                              const field = scene.voiceover ? 'voiceover' : (scene.dialogue ? 'dialogue' : 'text');
+                                              newScenes[idx][field] = e.target.value;
+                                              setScriptData({...scriptData, scenes: newScenes});
+                                            }}
+                                            className="w-full bg-foreground/5 border border-border/50 rounded-xl p-4 text-sm font-bold text-foreground focus:outline-none focus:border-primary/50 transition-all resize-none min-h-[80px]"
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <label className="text-[9px] font-black text-muted uppercase tracking-widest italic">Visual Search Prompt</label>
+                                          <input 
+                                            type="text"
+                                            value={scene.visual || scene.keywords || ""}
+                                            onChange={(e) => {
+                                              const newScenes = [...scriptData.scenes];
+                                              if (newScenes[idx].visual !== undefined) newScenes[idx].visual = e.target.value;
+                                              else newScenes[idx].keywords = e.target.value;
+                                              setScriptData({...scriptData, scenes: newScenes});
+                                            }}
+                                            className="w-full bg-foreground/5 border border-border/50 rounded-xl p-4 text-[10px] font-black text-primary uppercase tracking-[0.2em] focus:outline-none focus:border-primary/50 transition-all"
+                                          />
+                                        </div>
+                                      </div>
                                    </div>
                                 </div>
                              </div>
