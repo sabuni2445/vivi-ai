@@ -83,13 +83,15 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    let w = canvas.width;
+    let h = canvas.height;
     let particles: Particle[] = [];
     let animationId: number;
     let mouse: { x: number | null, y: number | null, radius: number } = { x: null, y: null, radius: 150 };
 
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
     };
 
     window.addEventListener('resize', resize);
@@ -174,8 +176,6 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
     }
 
     const init = () => {
-      const w = canvas.width;
-      const h = canvas.height;
       particles = [];
       // Limit particles to a reasonable number even on giant screens
       const numberOfParticles = Math.min((w * h) / 25000, 150);
