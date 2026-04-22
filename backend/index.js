@@ -26,7 +26,10 @@ if (!fs.existsSync(PUBLIC_DIR)) {
 // Configure multer for logo uploads
 const upload = multer({ dest: TEMP_DIR });
 
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+function uuidv4() {
+  return crypto.randomUUID();
+}
 const { dbRun, dbGet } = require('./services/db');
 
 const { generateScript } = require('./services/groq');
