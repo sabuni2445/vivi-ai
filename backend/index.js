@@ -10,21 +10,24 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({
-  origin: ['https://vivi-ai-blond.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors()); // Permissive for debugging
 
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log(`[${new Date().toISOString()}] Incoming: ${req.method} ${req.url}`);
   next();
 });
 
 app.use(express.json());
 
-// Health check for Render
-app.get('/health', (req, res) => res.status(200).send('OK'));
+// Health check and DB Probe
+app.get('/health', async (req, res) => {
+  try {
+    const result = await dbGet('SELECT 1');
+    res.status(200).json({ status: 'OK', db: !!result });
+  } catch (err) {
+    res.status(500).json({ status: 'Error', error: err.message });
+  }
+});
 
 // Create temp and public directories for video processing and persistence
 const TEMP_DIR = path.join(__dirname, 'temp');
