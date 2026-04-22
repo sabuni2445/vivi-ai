@@ -221,7 +221,7 @@ app.post('/api/assets', async (req, res) => {
         sceneId,
         keywords: sceneKeywords,
         options: videoOptions,
-        audioUrl: `${req.protocol}://${req.get('host')}/videos/${campaignId}/audio_${sceneId}.mp3?t=${Date.now()}`,
+        audioUrl: `${getBaseUrl(req)}/videos/${campaignId}/audio_${sceneId}.mp3?t=${Date.now()}`,
       });
     }
     res.json({ assets });
@@ -345,7 +345,8 @@ app.post('/api/generate', upload.single('logo'), async (req, res) => {
       const persistentFilePath = path.join(PUBLIC_DIR, persistentFileName);
       fs.copyFileSync(outputVideoPath, persistentFilePath);
 
-      const fullVideoUrl = `${req.protocol}://${req.get('host')}/public/campaigns/${persistentFileName}`;
+      const baseUrl = getBaseUrl(req);
+      const fullVideoUrl = `${baseUrl}/public/campaigns/${persistentFileName}`;
       
       // Update Database Route if Campaign ID was passed
       if (req.body.campaignId) {
@@ -374,6 +375,25 @@ app.post('/api/generate', upload.single('logo'), async (req, res) => {
   }
 });
 
+// Process-level error handling to prevent 502/503 crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('CRITICAL: Uncaught Exception:', err);
+});
+
+// Update URLs to be HTTPS-aware for production (CORS/Mixed Content fix)
+function getBaseUrl(req) {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  // Force https if we are on Render
+  const finalProtocol = host.includes('render.com') ? 'https' : protocol;
+  return `${finalProtocol}://${host}`;
+}
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`[${new Date().toISOString()}] Server running on port ${PORT}`);
+  console.log(`[${new Date().toISOString()}] DB Connection String present: ${!!process.env.DATABASE_URL}`);
 });
