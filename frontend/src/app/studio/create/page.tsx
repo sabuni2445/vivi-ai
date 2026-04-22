@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CreateFlow } from '@/components/studio/views/CreateFlow';
 import { useStudio } from '@/context/StudioContext';
+import { API_BASE_URL } from '@/lib/constants';
 
 const PRE_MADE_VIDEOS = [
   '/videos/video1.mp4',
@@ -125,7 +126,7 @@ export default function CreatePage() {
 
     try {
       // Create Database Campaign Entry (Phase 1 Persistence)
-      const campaignRes = await fetch('http://localhost:5000/api/campaigns', {
+      const campaignRes = await fetch(`${API_BASE_URL}/api/campaigns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({...form, manualContext: originalPrompt})
@@ -134,7 +135,7 @@ export default function CreatePage() {
       const currentCampaignId = campaignEntry.id;
       setCampaignId(currentCampaignId);
 
-      const response = await fetch('http://localhost:5000/api/script', {
+      const response = await fetch(`${API_BASE_URL}/api/script`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -165,7 +166,7 @@ export default function CreatePage() {
     setStep('loading');
     setRealTimeProgress({ step: "Sourcing Stock Assets", percentage: 50 });
     try {
-      const response = await fetch('http://localhost:5000/api/assets', {
+      const response = await fetch(`${API_BASE_URL}/api/assets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ script: scriptData, campaignId })
@@ -206,14 +207,14 @@ export default function CreatePage() {
       // Start Real-Time SSE Listener
       let eventSource: EventSource | null = null;
       if (campaignId) {
-        eventSource = new EventSource(`http://localhost:5000/api/progress/${campaignId}`);
+        eventSource = new EventSource(`${API_BASE_URL}/api/progress/${campaignId}`);
         eventSource.onmessage = (event) => {
           const data = JSON.parse(event.data);
           setRealTimeProgress(data);
         };
       }
 
-      const response = await fetch('http://localhost:5000/api/generate', {
+      const response = await fetch(`${API_BASE_URL}/api/generate`, {
         method: 'POST',
         body: formData,
       });

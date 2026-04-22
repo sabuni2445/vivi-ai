@@ -3,8 +3,10 @@ const ffmpegInstaller = require('ffmpeg-static');
 const ffprobeInstaller = require('ffprobe-static');
 const path = require('path');
 
-ffmpeg.setFfmpegPath(ffmpegInstaller);
-ffmpeg.setFfprobePath(ffprobeInstaller.path);
+if (process.env.NODE_ENV !== 'production') {
+  ffmpeg.setFfmpegPath(ffmpegInstaller);
+  ffmpeg.setFfprobePath(ffprobeInstaller.path);
+}
 
 function getAspectConfig(ratio) {
   switch (ratio) {
