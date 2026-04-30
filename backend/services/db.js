@@ -3,6 +3,11 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+if (!process.env.DATABASE_URL) {
+  console.error('CRITICAL: DATABASE_URL is missing from .env file.');
+  console.error('Please add your Supabase connection string to continue.');
+}
+
 // Use the Supabase Connection String from your .env file
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

@@ -1,45 +1,68 @@
 const { OpenAI } = require('openai');
 
-let openaiClient;
+let groqClient;
 
-function getOpenAIClient() {
-  if (!openaiClient) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is missing from environment variables.');
+function getGroqClient() {
+  if (!groqClient) {
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY is missing from environment variables.');
     }
-    openaiClient = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+    groqClient = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1',
     });
   }
-  return openaiClient;
+  return groqClient;
 }
 
-async function generateScript(prompt) {
-  const openai = getOpenAIClient();
-  const systemPrompt = `You are a video script generator. Generate a 3-scene video script for Vivi-AI.
-  Return ONLY a JSON array with exactly 3 objects.
-  Each object MUST have:
-  - "text": 1-2 sentences of narration.
-  - "keywords": 2-3 visual keywords (nouns/adjectives) to search for stock video.
-  - "scene_number": index (1, 2, 3).
-  Example:
-  [
-    { "text": "In the heart of the forest, the dawn breaks.", "keywords": "forest sunrise morning", "scene_number": 1 },
-    ...
-  ]`;
+async function generateScript(productName, description, style) {
+  const groq = getGroqClient();
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo', // or 'gpt-4o-mini'
+  const systemPrompt = `You are a professional AI Video Ad Strategist. Generate a high-converting 3-scene video ad script.
+  The total duration must be exactly 8 seconds.
+  
+  Structure:
+  Scene 1: The Hook (3 seconds) - Grab attention instantly.
+  Scene 2: The Value (3 seconds) - Show the main benefit/problem solved.
+  Scene 3: The CTA (2 seconds) - Strong call to action.
+
+  Return ONLY a JSON object with this exact structure:
+  {
+    "marketing_strategy": "Brief explanation of the psychological angle used.",
+    "scenes": [
+      { 
+        "scene_number": 1,
+        "text": "1-2 sentences for narration.",
+        "visual_prompt": "Highly detailed cinematic image prompt. Describe lighting, camera angle, and subject. Style: ${style}.",
+        "duration": 3
+      },
+      { 
+        "scene_number": 2,
+        "text": "1-2 sentences for narration.",
+        "visual_prompt": "Highly detailed cinematic image prompt. Describe lighting, camera angle, and subject. Style: ${style}.",
+        "duration": 3
+      },
+      { 
+        "scene_number": 3,
+        "text": "1-2 sentences for narration.",
+        "visual_prompt": "Highly detailed cinematic image prompt. Describe lighting, camera angle, and subject. Style: ${style}.",
+        "duration": 2
+      }
+    ],
+    "caption": "Short, punchy social media caption.",
+    "hashtags": ["tag1", "tag2"]
+  }`;
+
+  const response = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Generate a script for: ${prompt}` },
+      { role: 'user', content: `Product: ${productName}. Description: ${description}. Style: ${style}.` },
     ],
     response_format: { type: 'json_object' },
   });
 
-  const content = JSON.parse(response.choices[0].message.content);
-  // Ensure we return the array even if GPT wraps it in a key
-  return content.scenes || content.script || Array.isArray(content) ? content : Object.values(content)[0];
+  return JSON.parse(response.choices[0].message.content);
 }
 
 module.exports = { generateScript };

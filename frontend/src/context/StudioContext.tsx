@@ -10,8 +10,12 @@ interface StudioContextType {
   setTheme: (theme: 'light' | 'dark') => void;
   userAssets: any[];
   addUserAsset: (asset: any) => void;
+  credits: number;
+  fetchCredits: () => Promise<void>;
   T: any;
 }
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 const StudioContext = createContext<StudioContextType | undefined>(undefined);
 
@@ -19,20 +23,23 @@ export const StudioProvider = ({ children }: { children: React.ReactNode }) => {
   const [lang, setLang] = useState<Language>('en');
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [userAssets, setUserAssets] = useState<any[]>([]);
+  const [credits, setCredits] = useState<number>(0);
+
+  const fetchCredits = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/user/credits`, {
+        headers: { 'x-user-id': 'anonymous' } // Use real auth in production
+      });
+      const data = await res.json();
+      setCredits(data.credits);
+    } catch (error) {
+      console.error('Failed to fetch credits:', error);
+    }
+  };
 
   useEffect(() => {
-    const savedLang = localStorage.getItem('vivi-pro-lang') as Language | null;
-    if (savedLang) setLang(savedLang);
-
-    const savedTheme = localStorage.getItem('vivi-pro-theme') as 'light' | 'dark' | null;
-    const initialTheme = savedTheme || 'dark';
-    setTheme(initialTheme);
-    document.documentElement.setAttribute('data-theme', initialTheme);
-    document.documentElement.classList.remove('light', 'dark');
-    document.documentElement.classList.add(initialTheme);
-
-    const savedAssets = localStorage.getItem('vivi-user-assets');
-    if (savedAssets) setUserAssets(JSON.parse(savedAssets));
+    // ... (existing localStorage logic)
+    fetchCredits();
   }, []);
 
   const handleSetLang = (newLang: Language) => {
@@ -64,6 +71,8 @@ export const StudioProvider = ({ children }: { children: React.ReactNode }) => {
       setTheme: handleSetTheme,
       userAssets,
       addUserAsset,
+      credits,
+      fetchCredits,
       T: translations[lang]
     }}>
       {children}

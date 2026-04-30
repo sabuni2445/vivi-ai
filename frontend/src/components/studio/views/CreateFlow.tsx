@@ -37,6 +37,8 @@ interface CreateFlowProps {
   assetsData?: any;
   selectedVisuals?: Record<string, string>;
   setSelectedVisuals?: (v: Record<string, string>) => void;
+  credits?: number;
+  handleRegenerateImage?: (sceneIndex: number) => void;
 }
 
 export const CreateFlow = ({
@@ -66,7 +68,9 @@ export const CreateFlow = ({
   handleFetchAssets,
   assetsData,
   selectedVisuals,
-  setSelectedVisuals
+  setSelectedVisuals,
+  credits,
+  handleRegenerateImage
 }: CreateFlowProps) => {
   const [subStep, setSubStep] = React.useState(0);
 
@@ -354,15 +358,21 @@ export const CreateFlow = ({
                   <div className="glass-card p-12 relative z-10 overflow-hidden inner-glow group">
                       <div className="absolute -top-40 -right-40 w-96 h-96 bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
                       
-                      <div className="flex items-center justify-between mb-16">
-                         <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-muted flex items-center gap-3">
-                           <Layers className="w-4 h-4 text-primary" /> Strategy Briefing
-                         </h3>
-                         <div className="flex gap-2 p-1 bg-foreground/5 rounded-xl border border-border">
-                           <button onClick={() => setMode('guided')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${mode === 'guided' ? 'bg-primary text-white' : 'text-muted'}`}>Guided</button>
-                           <button onClick={() => setMode('prompt')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${mode === 'prompt' ? 'bg-primary text-white' : 'text-muted'}`}>Expert</button>
-                         </div>
-                      </div>
+                       <div className="flex items-center justify-between mb-16">
+                          <h3 className="text-[11px] font-black uppercase tracking-[0.5em] text-muted flex items-center gap-3">
+                            <Layers className="w-4 h-4 text-primary" /> Strategy Briefing
+                          </h3>
+                          <div className="flex items-center gap-6">
+                            <div className="px-4 py-2 rounded-full bg-primary/10 border border-primary/20 flex items-center gap-3">
+                              <Sparkles className="w-3 h-3 text-primary" />
+                              <span className="text-[10px] font-black uppercase tracking-widest text-primary">{credits ?? 0} Credits</span>
+                            </div>
+                            <div className="flex gap-2 p-1 bg-foreground/5 rounded-xl border border-border">
+                              <button onClick={() => setMode('guided')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${mode === 'guided' ? 'bg-primary text-white' : 'text-muted'}`}>Guided</button>
+                              <button onClick={() => setMode('prompt')} className={`px-5 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${mode === 'prompt' ? 'bg-primary text-white' : 'text-muted'}`}>Expert</button>
+                            </div>
+                          </div>
+                       </div>
 
                       {mode === 'guided' ? renderFormStep() : (
                         <div className="space-y-8">
@@ -419,34 +429,59 @@ export const CreateFlow = ({
                                          </div>
                                       </div>
                                       
-                                      <div className="grid grid-cols-1 gap-6">
-                                        <div className="space-y-2">
-                                          <label className="text-[9px] font-black text-muted uppercase tracking-widest italic">Scene Script (Voiceover)</label>
-                                          <textarea 
-                                            value={scene.voiceover || scene.dialogue || scene.text || ""} 
-                                            onChange={(e) => {
-                                              const newScenes = [...scriptData.scenes];
-                                              const field = scene.voiceover ? 'voiceover' : (scene.dialogue ? 'dialogue' : 'text');
-                                              newScenes[idx][field] = e.target.value;
-                                              setScriptData({...scriptData, scenes: newScenes});
-                                            }}
-                                            className="w-full bg-foreground/5 border border-border/50 rounded-xl p-4 text-sm font-bold text-foreground focus:outline-none focus:border-primary/50 transition-all resize-none min-h-[80px]"
-                                          />
-                                        </div>
-                                        <div className="space-y-2">
-                                          <label className="text-[9px] font-black text-muted uppercase tracking-widest italic">Visual Search Prompt</label>
-                                          <input 
-                                            type="text"
-                                            value={scene.visual || scene.keywords || ""}
-                                            onChange={(e) => {
-                                              const newScenes = [...scriptData.scenes];
-                                              if (newScenes[idx].visual !== undefined) newScenes[idx].visual = e.target.value;
-                                              else newScenes[idx].keywords = e.target.value;
-                                              setScriptData({...scriptData, scenes: newScenes});
-                                            }}
-                                            className="w-full bg-foreground/5 border border-border/50 rounded-xl p-4 text-[10px] font-black text-primary uppercase tracking-[0.2em] focus:outline-none focus:border-primary/50 transition-all"
-                                          />
-                                        </div>
+                                       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+                                         <div className="md:col-span-8 space-y-6">
+                                            <div className="space-y-2">
+                                              <label className="text-[9px] font-black text-muted uppercase tracking-widest italic">Scene Script (Voiceover)</label>
+                                              <textarea 
+                                                value={scene.voiceover || scene.dialogue || scene.text || ""} 
+                                                onChange={(e) => {
+                                                  const newScenes = [...scriptData.scenes];
+                                                  const field = scene.voiceover ? 'voiceover' : (scene.dialogue ? 'dialogue' : 'text');
+                                                  newScenes[idx][field] = e.target.value;
+                                                  setScriptData({...scriptData, scenes: newScenes});
+                                                }}
+                                                className="w-full bg-foreground/5 border border-border/50 rounded-xl p-4 text-sm font-bold text-foreground focus:outline-none focus:border-primary/50 transition-all resize-none min-h-[80px]"
+                                              />
+                                            </div>
+                                            <div className="space-y-2">
+                                              <label className="text-[9px] font-black text-muted uppercase tracking-widest italic">Visual Search Prompt</label>
+                                              <div className="flex gap-3">
+                                                <input 
+                                                  type="text"
+                                                  value={scene.visual_prompt || scene.visual || scene.keywords || ""}
+                                                  onChange={(e) => {
+                                                    const newScenes = [...scriptData.scenes];
+                                                    newScenes[idx].visual_prompt = e.target.value;
+                                                    setScriptData({...scriptData, scenes: newScenes});
+                                                  }}
+                                                  className="flex-1 bg-foreground/5 border border-border/50 rounded-xl p-4 text-[10px] font-black text-primary uppercase tracking-[0.2em] focus:outline-none focus:border-primary/50 transition-all"
+                                                />
+                                                <button 
+                                                  onClick={() => handleRegenerateImage?.(idx)}
+                                                  className="px-4 bg-secondary/10 border border-secondary/20 rounded-xl hover:bg-secondary/20 transition-all"
+                                                  title="Regenerate AI Image"
+                                                >
+                                                  <Wand2 className="w-4 h-4 text-secondary" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                         </div>
+                                         <div className="md:col-span-4">
+                                            <div className="aspect-[9/16] bg-foreground/5 rounded-2xl overflow-hidden border border-border relative group/img">
+                                              {scene.image_url ? (
+                                                <img src={scene.image_url} alt={`Scene ${idx + 1}`} className="w-full h-full object-cover" />
+                                              ) : (
+                                                <div className="w-full h-full flex flex-col items-center justify-center gap-4">
+                                                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                                  <span className="text-[8px] font-black uppercase tracking-widest text-muted">AI Generating...</span>
+                                                </div>
+                                              )}
+                                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                                 <span className="text-[8px] font-black uppercase tracking-[0.3em] text-white">9:16 AI Preview</span>
+                                              </div>
+                                            </div>
+                                         </div>
                                       </div>
                                    </div>
                                 </div>
@@ -474,16 +509,17 @@ export const CreateFlow = ({
                                />
                              </div>
                              <div className="pt-6">
-                                <motion.button 
-                                  onClick={() => handleFetchAssets?.()}
-                                  whileHover={{ scale: 1.02 }} 
-                                  whileTap={{ scale: 0.98 }} 
-                                  className="w-full primary-btn py-6 rounded-2xl font-black text-lg tracking-[0.2em] uppercase italic flex items-center justify-center gap-4"
-                                >
-                                  Generate Visuals <ArrowRight className="w-5 h-5" />
-                                </motion.button>
-                                <p className="text-[9px] text-center mt-6 font-black text-muted uppercase tracking-[0.4em]">Step 1 of 2: Fetching Assets</p>
-                             </div>
+                                 <motion.button 
+                                   onClick={() => handleVideoSynthesize(scriptData)}
+                                   whileHover={{ scale: 1.02 }} 
+                                   whileTap={{ scale: 0.98 }} 
+                                   className="w-full primary-btn py-6 rounded-2xl font-black text-lg tracking-[0.2em] uppercase italic flex items-center justify-center gap-4"
+                                   disabled={scriptData?.scenes?.some((s: any) => !s.image_url)}
+                                 >
+                                   Produce Final Video <ArrowRight className="w-5 h-5" />
+                                 </motion.button>
+                                 <p className="text-[9px] text-center mt-6 font-black text-muted uppercase tracking-[0.4em]">Cost: 1 Production Credit</p>
+                              </div>
                           </div>
                        </div>
                     </div>

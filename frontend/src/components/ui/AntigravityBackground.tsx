@@ -73,6 +73,12 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
   const themeRef = useRef(theme);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     themeRef.current = theme;
   }, [theme]);
@@ -237,7 +243,7 @@ export const CanvasParticles = ({ mousePosition }: { mousePosition: { x: number,
       ref={canvasRef}
       className="absolute inset-0 z-[10] pointer-events-none transform-gpu transition-transform duration-300 ease-out"
       style={{
-        transform: typeof window !== 'undefined' ? `translate(${(mousePosition.x - window.innerWidth / 2) * 0.02}px, ${(mousePosition.y - window.innerHeight / 2) * 0.02}px)` : 'none'
+        transform: mounted ? `translate(${(mousePosition.x - window.innerWidth / 2) * 0.02}px, ${(mousePosition.y - window.innerHeight / 2) * 0.02}px)` : 'none'
       }}
     />
   );

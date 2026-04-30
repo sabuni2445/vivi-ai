@@ -14,7 +14,7 @@ const PRE_MADE_VIDEOS = [
 ];
 
 export default function CreatePage() {
-  const { T, lang, addUserAsset } = useStudio();
+  const { T, lang, addUserAsset, credits, fetchCredits } = useStudio();
   const [mode, setMode] = useState<'guided' | 'prompt'>('guided');
   const [step, setStep] = useState<'idle' | 'forming' | 'review' | 'preview' | 'loading' | 'result'>('forming');
   const [progressStep, setProgressStep] = useState(0);
@@ -86,175 +86,168 @@ export default function CreatePage() {
     }));
   }, [step, form, originalPrompt, scriptData, assetsData, selectedVisuals, campaignId, generatedVideo]);
 
-  // Phase 1: Generate Script for Review
+  // STEP 1: Generate Script for Review
   const handleScriptGenerate = async () => {
-    let finalPrompt = '';
-    if (mode === 'guided') {
-      finalPrompt = `
-        USER STRATEGY BRIEF:
-        - Main Brand/Business: ${form.businessName} (${form.businessType})
-        - Core Product/Service: ${form.product}
-        - Primary Goal: ${form.goal}
-        - Target Audience: ${form.targetAudience}
-        - Target Platform: ${form.format} (${form.aspectRatio})
-        
-        PLATFORM-SPECIFIC DIRECTION:
-        - Opening Hook Style: ${form.vibe}
-        - On-Screen Hook Text: ${form.hookText}
-        - Main Narrative/Story: ${form.narrative}
-        - Core Visual Action: ${form.action}
-        - Key Visual Elements: ${form.visualElements}
-        - Customer Pain Point: ${form.pain}
-        - Primary Offer: ${form.offer}
-        - Call to Action: ${form.cta}
-        
-        VISUAL DNA:
-        - Overall Style: ${form.style}
-        - Mood Profile: ${form.mood}
-        - Brand Colors: ${form.colors}
-        - Final Message: ${form.message}
-
-        ADDITIONAL CONTEXT: ${originalPrompt || 'None'}
-      `.trim();
-    } else {
-      finalPrompt = originalPrompt;
-    }
-
-    setOriginalPrompt(finalPrompt);
     setStep('loading');
-    setProgressStep(0);
+    setRealTimeProgress({ step: "AI Strategy Brainstorming", percentage: 20 });
+
+    // Compile description from guided fields if in guided mode
+    const compiledDescription = mode === 'guided' 
+      ? `Hook: ${form.hookText}. Action: ${form.action}. Key Message: ${form.message}. Product/Goal: ${form.product || form.description}.`
+      : originalPrompt;
 
     try {
-      // Create Database Campaign Entry (Phase 1 Persistence)
-      const campaignRes = await fetch(`${API_BASE_URL}/api/campaigns`, {
+      const response = await fetch(`${API_BASE_URL}/api/generate-script`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({...form, manualContext: originalPrompt})
-      });
-      const campaignEntry = await campaignRes.json();
-      const currentCampaignId = campaignEntry.id;
-      setCampaignId(currentCampaignId);
-
-      const response = await fetch(`${API_BASE_URL}/api/script`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': 'anonymous'
+        },
         body: JSON.stringify({ 
-          brief: { ...form, manualContext: originalPrompt }
+          productName: form.product || form.businessName || 'My Product',
+          description: compiledDescription || originalPrompt || 'A high converting video ad.',
+          style: form.style || 'Modern'
         }),
       });
 
-      if (!response.ok) throw new Error('Script generation failed');
+      if (!response.ok) {
+        const error = await response.json();
+        if (error.code === 'CREDITS_EXHAUSTED') throw new Error('NO_CREDITS');
+        throw new Error(error.error || 'Script generation failed');
+      }
 
       const data = await response.json();
-      setScriptData(data);
+      setVideoId(data.videoId);
+      setScriptData(data.script);
       setMarketingInsights({
-        hook: data.hook,
+        hook: data.script.scenes[0].text,
         audience: form.targetAudience,
         platform: form.platform || 'General',
-        strategy: data.strategyExplanation
+        strategy: data.script.marketing_strategy
       });
-      setStep('review');
-    } catch (error) {
+      
+      // Automatically trigger image generation
+      handleGenerateImages(data.videoId, data.script.scenes);
+    } catch (error: any) {
       console.error('Script Error:', error);
-      alert('Failed to generate script. Using fallback.');
+      if (error.message === 'NO_CREDITS') {
+        alert('Insufficient credits! Please top up.');
+        // Redirect to credits page if we had one
+      }
       setStep('forming');
     }
   };
 
-  // Phase 1.5: Fetch Assets for human review
-  const handleFetchAssets = async () => {
-    setStep('loading');
-    setRealTimeProgress({ step: "Sourcing Stock Assets", percentage: 50 });
+  // STEP 2: Generate Images (Async Polling)
+  const [imageTasks, setImageTasks] = useState<any[]>([]);
+  
+  const handleGenerateImages = async (vId: string, scenes: any[]) => {
+    setStep('review'); // Show the review page with "Generating Images" overlays
     try {
-      const response = await fetch(`${API_BASE_URL}/api/assets`, {
+      const response = await fetch(`${API_BASE_URL}/api/generate-images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script: scriptData, campaignId })
+        body: JSON.stringify({ videoId: vId, scenes })
       });
-      if (!response.ok) throw new Error('Asset fetch failed');
       const data = await response.json();
-      setAssetsData(data);
-      setRealTimeProgress(null);
-      setStep('preview');
+      setImageTasks(data.tasks);
+      
+      // Start polling for each image
+      data.tasks.forEach((task: any) => pollImageStatus(task.taskId, task.sceneIndex));
     } catch (err) {
       console.error(err);
-      alert('Failed to fetch assets.');
-      setRealTimeProgress(null);
-      setStep('review');
     }
   };
 
-  // Phase 2: Synthesize Video from Script
-  const handleVideoSynthesize = async (finalScript: any) => {
-    setIsSynthesizing(true);
-    setStep('loading');
-    setProgressStep(1); // Start from logical visual generation step
+  const pollImageStatus = async (taskId: string, sceneIndex: number) => {
+    if (!taskId || taskId === 'undefined') {
+      console.error(`[Polling] Skipping: No valid Task ID for scene ${sceneIndex}`);
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setProgressStep((prev) => (prev < 3 ? prev + 1 : prev));
-    }, 15000);
-
-    try {
-      const formData = new FormData();
-      formData.append('prompt', originalPrompt);
-      formData.append('script', JSON.stringify(finalScript));
-      formData.append('platform', form.platform);
-      formData.append('aspectRatio', form.aspectRatio);
-      formData.append('selectedVisuals', JSON.stringify(selectedVisuals));
-      if (campaignId) formData.append('campaignId', campaignId);
-      if (logoFile) formData.append('logo', logoFile);
-
-      // Start Real-Time SSE Listener
-      let eventSource: EventSource | null = null;
-      if (campaignId) {
-        eventSource = new EventSource(`${API_BASE_URL}/api/progress/${campaignId}`);
-        eventSource.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          setRealTimeProgress(data);
-        };
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/task-status/${taskId}?type=image`);
+        const data = await res.json();
+        
+        if (data.status === 'succeed') {
+          setScriptData((prev: any) => {
+            const newScenes = [...prev.scenes];
+            newScenes[sceneIndex].image_url = data.resultUrl;
+            return { ...prev, scenes: newScenes };
+          });
+        } else if (data.status === 'failed') {
+          console.error(`Image task ${taskId} failed`);
+        } else {
+          setTimeout(check, 3000); // Poll every 3 seconds
+        }
+      } catch (e) {
+        console.error(e);
       }
+    };
+    check();
+  };
 
-      const response = await fetch(`${API_BASE_URL}/api/generate`, {
+  // STEP 3: Finalize & Generate Video (Kling)
+  const handleVideoSynthesize = async (finalScript: any) => {
+    setStep('loading');
+    setRealTimeProgress({ step: "Kling AI Video Engine Initializing", percentage: 10 });
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/finalize-video`, {
         method: 'POST',
-        body: formData,
+        headers: { 
+            'Content-Type': 'application/json',
+            'x-user-id': 'anonymous'
+        },
+        body: JSON.stringify({ 
+            videoId: videoId,
+            scenes: finalScript.scenes
+        })
       });
 
-      if (eventSource) eventSource.close();
-
-      if (!response.ok) throw new Error('Video generation failed');
-
+      if (!response.ok) throw new Error('Video production failed to start');
+      
       const data = await response.json();
-      const result = data.results[0];
-
-      setGeneratedVideo(result.videoUrl);
-      setGeneratedCaption(result.caption);
-      setGeneratedHashtags(result.hashtags);
-      
-      addUserAsset({
-        id: Date.now().toString(),
-        title: originalPrompt.substring(0, 30) + '...',
-        category: form.businessType || 'Marketing',
-        thumb: result.videoUrl,
-        videoUrl: result.videoUrl,
-        createdAt: new Date().toISOString(),
-        quality: '4K READY'
-      });
-      
-      clearInterval(interval);
-      setProgressStep(3);
-      setTimeout(() => {
-        setStep('result');
-        setIsSynthesizing(false);
-      }, 1000);
-
+      pollVideoStatus(data.taskId);
     } catch (error) {
-      console.error('Synthesis Error:', error);
-      alert('Failed to synthesize video.');
+      console.error('Finalize Error:', error);
+      alert('Failed to start video production.');
       setStep('review');
-      clearInterval(interval);
-      setIsSynthesizing(false);
     }
   };
+
+  const pollVideoStatus = async (taskId: string) => {
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/task-status/${taskId}?type=video`);
+        const data = await res.json();
+        
+        if (data.status === 'succeed') {
+          setGeneratedVideo(data.resultUrl);
+          setStep('result');
+          fetchCredits(); // Refresh credits
+        } else if (data.status === 'failed') {
+          alert('Video generation failed. Credit refunded.');
+          setStep('review');
+          fetchCredits();
+        } else {
+          // Update progress based on polling
+          setRealTimeProgress({ 
+            step: "Kling AI is dreaming your video...", 
+            percentage: data.progress || 50 
+          });
+          setTimeout(check, 5000); // Poll every 5 seconds
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    check();
+  };
+
+  const [videoId, setVideoId] = useState<string | null>(null);
+
 
   const loadingMessages = realTimeProgress ? [
     realTimeProgress.step, realTimeProgress.step, realTimeProgress.step, realTimeProgress.step
@@ -264,6 +257,28 @@ export default function CreatePage() {
     T.generating.visuals,
     T.generating.finalizing
   ];
+
+
+  const handleRegenerateImage = async (sceneIndex: number) => {
+    // Optimistically clear the current image to show loading state
+    setScriptData((prev: any) => {
+      const newScenes = [...prev.scenes];
+      newScenes[sceneIndex].image_url = null;
+      return { ...prev, scenes: newScenes };
+    });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/generate-images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId, scenes: [scriptData.scenes[sceneIndex]] })
+      });
+      const data = await response.json();
+      pollImageStatus(data.tasks[0].taskId, sceneIndex);
+    } catch (err) {
+      console.error('Regenerate failed:', err);
+    }
+  };
 
   return (
     <div className="flex-1 w-full">
@@ -278,7 +293,6 @@ export default function CreatePage() {
         originalPrompt={originalPrompt}
         setOriginalPrompt={setOriginalPrompt}
         handleFormSubmit={handleScriptGenerate}
-        handleFetchAssets={handleFetchAssets}
         handleVideoSynthesize={handleVideoSynthesize}
         progressStep={progressStep}
         loadingMessages={loadingMessages}
@@ -294,6 +308,8 @@ export default function CreatePage() {
         setSelectedVisuals={setSelectedVisuals}
         T={T}
         realTimeProgress={realTimeProgress}
+        credits={credits}
+        handleRegenerateImage={handleRegenerateImage}
       />
     </div>
   );

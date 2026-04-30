@@ -17,7 +17,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health check and DB Probe
 app.get('/health', async (req, res) => {
@@ -47,12 +48,10 @@ function uuidv4() {
   return crypto.randomUUID();
 }
 const { dbRun, dbGet, dbAll } = require('./services/db');
-
-const { generateScript } = require('./services/groq');
+const { generateScript } = require('./services/openai');
+const { generateImage, generateVideo, pollTaskStatus } = require('./services/freepik');
+const { checkCredits, deductCredit, refundCredit, logUsage } = require('./services/monetization');
 const { generateVoice } = require('./services/elevenlabs');
-const { fetchVideo, searchPexelsOptions } = require('./services/pexels');
-const { generateImage } = require('./services/imagegen');
-const { processScene, processImageScene, concatenateScenes, applyLogoWatermark } = require('./services/ffmpeg');
 
 app.use('/videos', express.static(TEMP_DIR));
 app.use('/public/campaigns', express.static(PUBLIC_DIR));
@@ -61,81 +60,176 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// --- CAMPAIGN PERSISTENCE ROUTES ---
+// --- USER & CREDIT ROUTES ---
 
-app.post('/api/campaigns', async (req, res) => {
-  const payload = req.body;
-  const id = uuidv4();
-  const userId = payload.user_id || 'anonymous';
+app.get('/api/user/credits', async (req, res) => {
+  const userId = req.headers['x-user-id'] || 'anonymous';
+  try {
+    const user = await dbGet('SELECT credits FROM users WHERE id = ?', [userId]);
+    res.json({ credits: user ? user.credits : 0 });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch credits' });
+  }
+});
+
+app.post('/api/credits/buy', async (req, res) => {
+  const userId = req.headers['x-user-id'] || 'anonymous';
+  const { packageId } = req.body;
+  
+  const packages = {
+    'starter': 3,
+    'pro': 10,
+    'elite': 30
+  };
+  
+  const creditsToAdd = packages[packageId] || 0;
+  if (creditsToAdd === 0) return res.status(400).json({ error: 'Invalid package' });
+
+  try {
+    await dbRun('UPDATE users SET credits = credits + ? WHERE id = ?', [creditsToAdd, userId]);
+    const user = await dbGet('SELECT credits FROM users WHERE id = ?', [userId]);
+    res.json({ success: true, newBalance: user.credits });
+  } catch (error) {
+    res.status(500).json({ error: 'Payment failed' });
+  }
+});
+
+// --- GENERATION ENGINE V2 ---
+
+/**
+ * STEP 1: Generate Script (OpenAI)
+ */
+app.post('/api/generate-script', checkCredits, async (req, res) => {
+  const { productName, description, style } = req.body;
+  if (!productName || !description) return res.status(400).json({ error: 'Product details required' });
+
+  try {
+    const script = await generateScript(productName, description, style);
+    const videoId = uuidv4();
+    const userId = req.headers['x-user-id'] || 'anonymous';
+
+    // Store video draft
+    await dbRun(
+      'INSERT INTO videos (id, user_id, status, input_data, scenes_data) VALUES (?, ?, ?, ?, ?)',
+      [videoId, userId, 'draft', JSON.stringify({ productName, description, style }), JSON.stringify(script)]
+    );
+
+    res.json({ videoId, script });
+  } catch (error) {
+    console.error('Script Gen Error:', error);
+    res.status(500).json({ error: 'Failed to generate script' });
+  }
+});
+
+/**
+ * STEP 2: Generate Images (Freepik)
+ */
+app.post('/api/generate-images', async (req, res) => {
+  const { videoId, scenes } = req.body;
   
   try {
-    await dbRun(
-      'INSERT INTO campaigns (id, user_id, input, status) VALUES (?, ?, ?, ?)',
-      [id, userId, JSON.stringify(payload), 'processing']
-    );
-    res.status(201).json({ id, status: 'processing' });
-  } catch (error) {
-    console.error('Create Campaign Error:', error);
-    res.status(500).json({ error: 'Failed to create campaign' });
-  }
-});
+    console.log(`[Images] Starting parallel generation for ${scenes.length} scenes...`);
+    
+    const imageResults = await Promise.all(scenes.map(async (scene, i) => {
+      try {
+        const result = await generateImage(scene.visual_prompt);
+        if (!result) return null;
 
-app.get('/api/campaigns/:id', async (req, res) => {
-  try {
-    const campaign = await dbGet('SELECT * FROM campaigns WHERE id = ?', [req.params.id]);
-    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
-    
-    // Parse JSON fields
-    if (campaign.input) campaign.input = JSON.parse(campaign.input);
-    if (campaign.script) campaign.script = JSON.parse(campaign.script);
-    
-    res.json(campaign);
-  } catch (error) {
-    console.error('Fetch Campaign Error:', error);
-    res.status(500).json({ error: 'Failed to fetch campaign' });
-  }
-});
+        const isDirect = result.directUrl;
+        const taskId = isDirect ? `direct_${uuidv4()}` : result;
 
-app.patch('/api/campaigns/:id', async (req, res) => {
-  const { status, video_url, script } = req.body;
-  try {
-    let query = 'UPDATE campaigns SET ';
-    const updates = [];
-    const params = [];
-    
-    if (status) { updates.push('status = ?'); params.push(status); }
-    if (video_url) { updates.push('video_url = ?'); params.push(video_url); }
-    if (script) { updates.push('script = ?'); params.push(JSON.stringify(script)); }
-    
-    if (updates.length === 0) return res.status(400).json({ error: 'No update fields provided' });
-    
-    query += updates.join(', ') + ' WHERE id = ?';
-    params.push(req.params.id);
-    
-    await dbRun(query, params);
-    res.json({ message: 'Campaign updated successfully' });
-  } catch (error) {
-    console.error('Update Campaign Error:', error);
-    res.status(500).json({ error: 'Failed to update campaign' });
-  }
-});
+        // Log task in DB
+        await dbRun(
+          'INSERT INTO images (id, video_id, scene_index, task_id, status, image_url) VALUES (?, ?, ?, ?, ?, ?)',
+          [uuidv4(), videoId, i, taskId, isDirect ? 'completed' : 'processing', isDirect ? result.directUrl : null]
+        );
 
-app.get('/api/campaigns', async (req, res) => {
-  try {
-    const campaigns = await dbAll('SELECT * FROM campaigns ORDER BY created_at DESC');
-    const parsed = campaigns.map(c => ({
-        ...c,
-        input: c.input ? JSON.parse(c.input) : null,
-        script: c.script ? (typeof c.script === 'string' ? JSON.parse(c.script) : c.script) : null
+        return { sceneIndex: i, taskId };
+      } catch (err) {
+        console.error(`[Images] Error generating scene ${i}:`, err.message);
+        return null;
+      }
     }));
-    res.json(parsed);
+
+    const imageTasks = imageResults.filter(r => r !== null);
+    res.json({ tasks: imageTasks });
   } catch (error) {
-    console.error('List Campaigns Error:', error);
-    res.status(500).json({ error: 'Failed to fetch campaigns' });
+    res.status(500).json({ error: 'Failed to start image generation' });
   }
 });
 
-// --- END CAMPAIGN ROUTES ---
+/**
+ * STEP 3: Finalize & Generate Video (Kling)
+ */
+app.post('/api/finalize-video', checkCredits, async (req, res) => {
+  const { videoId, scenes } = req.body; // scenes includes final image_urls
+  const userId = req.headers['x-user-id'] || 'anonymous';
+
+  try {
+    // 1. Deduct credit first
+    await deductCredit(userId);
+    
+    // 2. Start Kling Video Task
+    const taskId = await generateVideo(scenes);
+    
+    // 3. Update video record
+    await dbRun(
+      'UPDATE videos SET task_id = ?, status = ?, scenes_data = ? WHERE id = ?',
+      [taskId, 'processing', JSON.stringify(scenes), videoId]
+    );
+
+    await logUsage(userId, 'freepik_video', 1);
+    res.json({ taskId, status: 'processing' });
+  } catch (error) {
+    console.error('Finalize Video Error:', error);
+    await refundCredit(userId); // Refund if start fails
+    res.status(500).json({ error: 'Failed to start video production' });
+  }
+});
+
+/**
+ * POLLING: Check Task Status
+ */
+app.get('/api/task-status/:id', async (req, res) => {
+  const taskId = req.params.id;
+  const { type } = req.query; // 'image' or 'video'
+
+  try {
+    // Check local DB first for instant/already-completed tasks
+    if (type === 'image') {
+        const localTask = await dbGet('SELECT status, image_url FROM images WHERE task_id = ?', [taskId]);
+        if (localTask && (localTask.status === 'completed' || localTask.image_url)) {
+            return res.json({ status: 'succeed', resultUrl: localTask.image_url });
+        }
+    } else {
+        const localVideo = await dbGet('SELECT status, video_url FROM videos WHERE task_id = ?', [taskId]);
+        if (localVideo && (localVideo.status === 'completed' || localVideo.video_url)) {
+            return res.json({ status: 'succeed', resultUrl: localVideo.video_url });
+        }
+    }
+
+    const result = await pollTaskStatus(taskId, type);
+    
+    if (result.status === 'succeed') {
+        if (type === 'video') {
+            await dbRun('UPDATE videos SET status = ?, video_url = ? WHERE task_id = ?', ['completed', result.resultUrl, taskId]);
+        } else {
+            await dbRun('UPDATE images SET status = ?, image_url = ? WHERE task_id = ?', ['completed', result.resultUrl, taskId]);
+        }
+    } else if (result.status === 'failed') {
+        if (type === 'video') {
+            const video = await dbGet('SELECT user_id FROM videos WHERE task_id = ?', [taskId]);
+            if (video) await refundCredit(video.user_id);
+            await dbRun('UPDATE videos SET status = ? WHERE task_id = ?', ['failed', taskId]);
+        } else {
+            await dbRun('UPDATE images SET status = ? WHERE task_id = ?', ['failed', taskId]);
+        }
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Status check failed' });
+  }
+});
 
 // --- SSE PROGRESS TRACKER ---
 const progressClients = {};
@@ -169,213 +263,11 @@ app.get('/api/progress/:id', (req, res) => {
   });
 });
 
-app.post('/api/script', async (req, res) => {
-  const { brief } = req.body;
-  console.log('--- NEW LITERAL ENGINE V2 REQUEST ---');
-  console.log('BRIEF:', JSON.stringify(brief, null, 2));
-
-  if (!brief) return res.status(400).json({ error: 'Brief is required' });
-
-  try {
-    const scriptData = await generateScript(brief);
-    res.json(scriptData);
-  } catch (error) {
-    console.error('Script Generation Error:', error);
-    res.status(500).json({ error: 'Failed to generate script' });
-  }
-});
-
-app.post('/api/assets', async (req, res) => {
-  const { script: scriptStr, campaignId } = req.body;
-  if (!scriptStr || !campaignId) return res.status(400).json({ error: 'script and campaignId required' });
-  
-  let scriptObj;
-  try {
-    scriptObj = typeof scriptStr === 'string' ? JSON.parse(scriptStr) : scriptStr;
-  } catch (err) {
-    scriptObj = scriptStr;
-  }
-  const script = scriptObj.scenes || scriptObj;
-  const sessionDir = path.join(TEMP_DIR, campaignId);
-  if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-
-  try {
-    const assets = [];
-    for (let index = 0; index < script.length; index++) {
-      const scene = script[index];
-      const sceneId = index + 1;
-      const audioPath = path.join(sessionDir, `audio_${sceneId}.mp3`);
-      const rawVisualPath = path.join(sessionDir, `raw_video_${sceneId}.mp4`);
-      
-      const sceneText = scene.voiceover || scene.dialogue || scene.text || "";
-      const sceneKeywords = scene.visual || scene.keywords || "";
-
-      const fetchPromises = [];
-      
-      // Force overwrite audio to prevent mixing stale generations if the user edited the text
-      fetchPromises.push(generateVoice(sceneText, audioPath));
-      
-      let videoOptions = [];
-      fetchPromises.push(searchPexelsOptions(sceneKeywords, 4).then(opts => videoOptions = opts));
-      
-      if (fetchPromises.length > 0) await Promise.all(fetchPromises);
-
-      assets.push({
-        sceneId,
-        keywords: sceneKeywords,
-        options: videoOptions,
-        audioUrl: `${getBaseUrl(req)}/videos/${campaignId}/audio_${sceneId}.mp3?t=${Date.now()}`,
-      });
-    }
-    res.json({ assets });
-  } catch(error) {
-    console.error('Assets Error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/generate', upload.single('logo'), async (req, res) => {
-  const prompt = req.body.prompt;
-  const useNanoBanana = req.body.useNanoBanana === 'true' || req.body.useNanoBanana === true;
-  const logoPath = req.file ? req.file.path : null;
-  const userProvidedScript = req.body.script ? JSON.parse(req.body.script) : null;
-  
-  if (!prompt && !userProvidedScript) {
-    return res.status(400).json({ error: 'Prompt or script is required' });
-  }
-
-  const sessionId = Date.now().toString();
-  const sessionDir = path.join(TEMP_DIR, sessionId);
-  fs.mkdirSync(sessionDir, { recursive: true });
-
-  try {
-    const contentType = req.body.contentType || 'Marketing';
-    const batchCount = parseInt(req.body.batchCount) || 1;
-    const maxBatch = Math.min(batchCount, 3);
-    const results = [];
-
-    for (let batchIndex = 0; batchIndex < maxBatch; batchIndex++) {
-      const batchSessionId = maxBatch > 1 ? `${sessionId}_v${batchIndex + 1}` : sessionId;
-      
-      const campaignId = req.body.campaignId || batchSessionId;
-      const batchSessionDir = path.join(TEMP_DIR, campaignId); // Use campaignId instead of sessionId for continuity
-      if (!fs.existsSync(batchSessionDir)) fs.mkdirSync(batchSessionDir, { recursive: true });
-
-      notifyProgress(campaignId, { step: 'Initializing Synthesis', percentage: 5 });
-
-      let generatedData;
-      if (userProvidedScript) {
-        console.log(`[${campaignId}] Using user-provided script...`);
-        generatedData = userProvidedScript;
-      } else {
-        console.log(`[${campaignId}] Generating new script...`);
-        generatedData = await generateScript(prompt, contentType);
-      }
-      
-      const script = generatedData.scenes || generatedData;
-      const mergedScenePaths = [];
-
-      for (let index = 0; index < script.length; index++) {
-        const scene = script[index];
-        const sceneId = index + 1;
-        const audioPath = path.join(batchSessionDir, `audio_${sceneId}.mp3`);
-        const rawVisualPath = path.join(batchSessionDir, useNanoBanana ? `raw_image_${sceneId}.jpg` : `raw_video_${sceneId}.mp4`);
-        const mergedVideoPath = path.join(batchSessionDir, `merged_scene_${sceneId}.mp4`);
-
-        const sceneText = scene.voiceover || scene.dialogue || scene.text || "";
-        const sceneKeywords = scene.visual || scene.keywords || "";
-
-        console.log(`[${campaignId}] Scene ${sceneId}: Voice & Visuals...`);
-        notifyProgress(campaignId, { step: `Scene ${sceneId} Assets`, percentage: Math.round(((index + 0.3) / script.length) * 80) });
-        
-        const selectedVisualsStr = req.body.selectedVisuals;
-        let selectedVisualsObj = null;
-        if (selectedVisualsStr) {
-          try { selectedVisualsObj = JSON.parse(selectedVisualsStr); } catch (e) {}
-        }
-        const userSelectedUrl = selectedVisualsObj && selectedVisualsObj[sceneId] ? selectedVisualsObj[sceneId] : null;
-
-        const fetchPromises = [];
-        if (!fs.existsSync(audioPath)) {
-           fetchPromises.push(generateVoice(sceneText, audioPath));
-        }
-        
-        if (!fs.existsSync(rawVisualPath)) {
-           if (userSelectedUrl) {
-             const axios = require('axios');
-             fetchPromises.push(
-               axios.get(userSelectedUrl, { responseType: 'stream' }).then(response => {
-                  const writer = fs.createWriteStream(rawVisualPath);
-                  response.data.pipe(writer);
-                  return new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
-               }).catch(err => { console.error("Failed to download selected visual", err); throw err; })
-             );
-           } else {
-             fetchPromises.push(useNanoBanana ? generateImage(sceneKeywords, rawVisualPath) : fetchVideo(sceneKeywords, rawVisualPath));
-           }
-        }
-        
-        if (fetchPromises.length > 0) {
-           await Promise.all(fetchPromises);
-        }
-
-        const targetRatio = req.body.aspectRatio || (generatedData.strategy && generatedData.strategy.aspect_ratio) || "9:16";
-
-        notifyProgress(campaignId, { step: `Scene ${sceneId} Rendering`, percentage: Math.round(((index + 0.8) / script.length) * 80) });
-
-        if (useNanoBanana) {
-          await processImageScene(rawVisualPath, audioPath, mergedVideoPath, sceneText, targetRatio);
-        } else {
-          await processScene(rawVisualPath, audioPath, mergedVideoPath, sceneText, targetRatio);
-        }
-        mergedScenePaths.push(mergedVideoPath);
-      }
-
-      console.log(`[${batchSessionId}] Concatenating...`);
-      notifyProgress(campaignId, { step: 'Finalizing Video', percentage: 90 });
-      const finalVideoPath = path.join(batchSessionDir, 'final.mp4');
-      await concatenateScenes(mergedScenePaths, finalVideoPath);
-
-      let outputVideoPath = finalVideoPath;
-      if (logoPath) {
-        const watermarkedPath = path.join(batchSessionDir, 'final_watermarked.mp4');
-        await applyLogoWatermark(finalVideoPath, logoPath, watermarkedPath);
-        outputVideoPath = watermarkedPath;
-      }
-
-      // Phase 1 Persistence: Move to persistent folder
-      const persistentFileName = `${campaignId}.mp4`;
-      const persistentFilePath = path.join(PUBLIC_DIR, persistentFileName);
-      fs.copyFileSync(outputVideoPath, persistentFilePath);
-
-      const baseUrl = getBaseUrl(req);
-      const fullVideoUrl = `${baseUrl}/public/campaigns/${persistentFileName}`;
-      
-      // Update Database Route if Campaign ID was passed
-      if (req.body.campaignId) {
-         try {
-           await dbRun('UPDATE campaigns SET status = ?, video_url = ?, script = ? WHERE id = ?', 
-           ['completed', fullVideoUrl, JSON.stringify(script), req.body.campaignId]);
-         } catch (dbErr) {
-           console.error('Failed to update DB on completion:', dbErr);
-         }
-      }
-
-      notifyProgress(campaignId, { step: 'Complete', percentage: 100, videoUrl: fullVideoUrl });
-
-      results.push({
-        videoUrl: fullVideoUrl,
-        script: script,
-        caption: generatedData.caption,
-        hashtags: Array.isArray(generatedData.hashtags) ? generatedData.hashtags.join(' ') : (generatedData.hashtags || '')
-      });
-    }
-
-    res.json({ message: 'Success', results });
-  } catch (error) {
-    console.error(`[${sessionId}] Gen Error:`, error);
-    res.status(500).json({ error: error.message || 'Failed to generate video' });
-  }
+/**
+ * LEGACY SYNC ROUTE (kept for minimal backward compatibility if needed)
+ */
+app.post('/api/generate', checkCredits, async (req, res) => {
+    res.status(410).json({ error: 'This endpoint is deprecated. Use the new V2 generation flow.' });
 });
 
 // Process-level error handling to prevent 502/503 crashes
