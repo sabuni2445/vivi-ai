@@ -37,6 +37,8 @@ interface CreateFlowProps {
   realTimeProgress?: { step: string, percentage: number } | null;
   handleFetchAssets?: () => void;
   assetsData?: any;
+  selectedVisuals?: any;
+  setSelectedVisuals?: (visuals: any) => void;
   credits?: number;
   videoCredits?: number;
   imageCredits?: number;
