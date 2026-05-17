@@ -1,0 +1,14 @@
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.local
+.env.production
+.env.development
+*.log
+temp/
+public/campaigns/raw_video_*
+public/campaigns/final_video_*
+public/campaigns/audio_*
+backend/temp/
